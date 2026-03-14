@@ -7,10 +7,15 @@ const KYC_KEY = 'hirefriend_kyc';
 const STREAK_KEY = 'hirefriend_streak';
 const SUB_KEY = 'hirefriend_subscription';
 const SAFETY_KEY = 'hirefriend_safety_agreed';
+const THEME_KEY = 'hirefriend_theme';
+const CONNECTS_KEY = 'hirefriend_connects';
+const BLOCKED_KEY = 'hirefriend_blocked';
+const AUTO_RENEW_KEY = 'hirefriend_auto_renew';
 
 export type KycStatus = 'none' | 'pending' | 'verified' | 'rejected';
 export type SubscriptionTier = 'free' | 'silver' | 'gold' | 'platinum';
 export type ThemeMode = 'light' | 'dark';
+export type PaymentStatus = 'pending' | 'processing' | 'success' | 'failed';
 
 export interface PointTransaction {
   id: string;
@@ -30,6 +35,28 @@ export interface BillingRecord {
   invoiceId: string;
 }
 
+export interface PaymentSession {
+  orderId: string;
+  userId: string;
+  tier: SubscriptionTier;
+  amount: number;
+  status: PaymentStatus;
+  createdAt: string;
+  expiresAt?: string;
+  signature?: string;
+}
+
+export interface SubscriptionData {
+  planType: SubscriptionTier;
+  connectsLeft: number;
+  connectsTotal: number;
+  subscriptionActive: boolean;
+  autoRenewEnabled: boolean;
+  lastRenewDate?: string;
+  expiryDate?: string;
+  walletBalance: number;
+}
+
 interface WalletState {
   points: number;
   credits: number;
@@ -44,11 +71,9 @@ interface WalletState {
   totalConnects: number;
   blockedUsers: string[];
   themeMode: ThemeMode;
+  autoRenewEnabled: boolean;
+  pendingPayment: PaymentSession | null;
 }
-
-const THEME_KEY = 'hirefriend_theme';
-const CONNECTS_KEY = 'hirefriend_connects';
-const BLOCKED_KEY = 'hirefriend_blocked';
 
 const defaultState: WalletState = {
   points: 320,
@@ -58,10 +83,12 @@ const defaultState: WalletState = {
   kycStatus: 'none',
   subscription: 'free',
   safetyAgreed: false,
-  connectsRemaining: 0,
-  totalConnects: 0,
+  connectsRemaining: 2, // FREE PLAN: 2 Profile Connects lifetime demo
+  totalConnects: 2,
   blockedUsers: [],
   themeMode: 'light',
+  autoRenewEnabled: false,
+  pendingPayment: null,
   transactions: [
     { id: 't1', type: 'attendance', amount: 40, description: 'Day 1 check-in', date: '2026-02-22' },
     { id: 't2', type: 'attendance', amount: 45, description: 'Day 2 check-in', date: '2026-02-23' },
@@ -83,93 +110,115 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
   const [loaded, setLoaded] = useState<boolean>(false);
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(WALLET_KEY),
-      AsyncStorage.getItem(KYC_KEY),
-      AsyncStorage.getItem(SUB_KEY),
-      AsyncStorage.getItem(SAFETY_KEY),
-      AsyncStorage.getItem(STREAK_KEY),
-      AsyncStorage.getItem(THEME_KEY),
-      AsyncStorage.getItem(CONNECTS_KEY),
-      AsyncStorage.getItem(BLOCKED_KEY),
-    ]).then(([walletStr, kycStr, subStr, safetyStr, streakStr, themeStr, connectsStr, blockedStr]) => {
-      const updates: Partial<WalletState> = {};
-      if (kycStr) updates.kycStatus = kycStr as KycStatus;
-      if (subStr) updates.subscription = subStr as SubscriptionTier;
-      if (safetyStr === 'true') updates.safetyAgreed = true;
-      if (themeStr) updates.themeMode = themeStr as ThemeMode;
-      if (blockedStr) {
-        try { updates.blockedUsers = JSON.parse(blockedStr); } catch { /* ignore */ }
+    (async () => {
+      try {
+        const [
+          walletStr,
+          kycStr,
+          subStr,
+          safetyStr,
+          streakStr,
+          themeStr,
+          connectsStr,
+          blockedStr,
+          autoRenewStr,
+        ] = await Promise.all([
+          AsyncStorage.getItem(WALLET_KEY),
+          AsyncStorage.getItem(KYC_KEY),
+          AsyncStorage.getItem(SUB_KEY),
+          AsyncStorage.getItem(SAFETY_KEY),
+          AsyncStorage.getItem(STREAK_KEY),
+          AsyncStorage.getItem(THEME_KEY),
+          AsyncStorage.getItem(CONNECTS_KEY),
+          AsyncStorage.getItem(BLOCKED_KEY),
+          AsyncStorage.getItem(AUTO_RENEW_KEY),
+        ]);
+
+        const updates: Partial<WalletState> = {};
+        if (kycStr) updates.kycStatus = kycStr as KycStatus;
+        if (subStr) updates.subscription = subStr as SubscriptionTier;
+        if (safetyStr === 'true') updates.safetyAgreed = true;
+        if (themeStr) updates.themeMode = themeStr as ThemeMode;
+        if (blockedStr) {
+          try { updates.blockedUsers = JSON.parse(blockedStr); } catch { /* ignore */ }
+        }
+        if (autoRenewStr === 'true') updates.autoRenewEnabled = true;
+        if (connectsStr) {
+          try {
+            const parsed = JSON.parse(connectsStr);
+            updates.connectsRemaining = parsed.remaining ?? defaultState.connectsRemaining;
+            updates.totalConnects = parsed.total ?? defaultState.totalConnects;
+          } catch { /* ignore */ }
+        }
+        if (streakStr) {
+          try {
+            const parsed = JSON.parse(streakStr);
+            updates.streak = parsed.streak ?? defaultState.streak;
+            updates.lastClaimDate = parsed.lastClaimDate ?? defaultState.lastClaimDate;
+          } catch { /* ignore */ }
+        }
+        if (walletStr) {
+          try {
+            const parsed = JSON.parse(walletStr);
+            updates.points = parsed.points ?? defaultState.points;
+            updates.credits = parsed.credits ?? defaultState.credits;
+            updates.transactions = parsed.transactions ?? defaultState.transactions;
+            updates.billingHistory = parsed.billingHistory ?? defaultState.billingHistory;
+          } catch { /* ignore */ }
+        }
+
+        setState((prev) => ({ ...prev, ...updates }));
+      } catch (err) {
+        console.error('[WalletContext] failed to load from storage', err);
+      } finally {
+        setLoaded(true);
       }
-      if (connectsStr) {
-        try {
-          const parsed = JSON.parse(connectsStr);
-          updates.connectsRemaining = parsed.remaining ?? 0;
-          updates.totalConnects = parsed.total ?? 0;
-        } catch { /* ignore */ }
-      }
-      if (streakStr) {
-        try {
-          const parsed = JSON.parse(streakStr);
-          updates.streak = parsed.streak ?? defaultState.streak;
-          updates.lastClaimDate = parsed.lastClaimDate ?? defaultState.lastClaimDate;
-        } catch { /* ignore */ }
-      }
-      if (walletStr) {
-        try {
-          const parsed = JSON.parse(walletStr);
-          updates.points = parsed.points ?? defaultState.points;
-          updates.credits = parsed.credits ?? defaultState.credits;
-          updates.transactions = parsed.transactions ?? defaultState.transactions;
-          updates.billingHistory = parsed.billingHistory ?? defaultState.billingHistory;
-        } catch { /* ignore */ }
-      }
-      setState((prev) => ({ ...prev, ...updates }));
-      setLoaded(true);
-    });
+    })();
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
-    AsyncStorage.setItem(WALLET_KEY, JSON.stringify({
-      points: state.points,
-      credits: state.credits,
-      transactions: state.transactions,
-      billingHistory: state.billingHistory,
-    }));
-    AsyncStorage.setItem(KYC_KEY, state.kycStatus);
-    AsyncStorage.setItem(SUB_KEY, state.subscription);
-    AsyncStorage.setItem(SAFETY_KEY, String(state.safetyAgreed));
-    AsyncStorage.setItem(STREAK_KEY, JSON.stringify({
-      streak: state.streak,
-      lastClaimDate: state.lastClaimDate,
-    }));
-    AsyncStorage.setItem(THEME_KEY, state.themeMode);
-    AsyncStorage.setItem(CONNECTS_KEY, JSON.stringify({
-      remaining: state.connectsRemaining,
-      total: state.totalConnects,
-    }));
-    AsyncStorage.setItem(BLOCKED_KEY, JSON.stringify(state.blockedUsers));
+    (async () => {
+      try {
+        await AsyncStorage.setItem(WALLET_KEY, JSON.stringify({
+          points: state.points,
+          credits: state.credits,
+          transactions: state.transactions,
+          billingHistory: state.billingHistory,
+        }));
+        await AsyncStorage.setItem(KYC_KEY, state.kycStatus);
+        await AsyncStorage.setItem(SUB_KEY, state.subscription);
+        await AsyncStorage.setItem(SAFETY_KEY, String(state.safetyAgreed));
+        await AsyncStorage.setItem(STREAK_KEY, JSON.stringify({
+          streak: state.streak,
+          lastClaimDate: state.lastClaimDate,
+        }));
+        await AsyncStorage.setItem(THEME_KEY, state.themeMode);
+        await AsyncStorage.setItem(CONNECTS_KEY, JSON.stringify({
+          remaining: state.connectsRemaining,
+          total: state.totalConnects,
+        }));
+        await AsyncStorage.setItem(AUTO_RENEW_KEY, String(state.autoRenewEnabled));
+        await AsyncStorage.setItem(BLOCKED_KEY, JSON.stringify(state.blockedUsers));
+      } catch (err) {
+        console.error('[WalletContext] failed to persist', err);
+      }
+    })();
   }, [state, loaded]);
 
-  const claimDailyReward = useCallback((dayPts: number) => {
-    const today = new Date().toISOString().split('T')[0];
+  const claimDailyReward = useCallback((dayPts: number, streakDay: number) => {
     setState((prev) => {
-      if (prev.lastClaimDate === today) return prev;
-      const newStreak = prev.streak + 1;
       const txn: PointTransaction = {
         id: `t_${Date.now()}`,
         type: 'attendance',
         amount: dayPts,
-        description: `Day ${newStreak} check-in`,
-        date: today,
+        description: `Day ${streakDay} check-in`,
+        date: new Date().toISOString().split('T')[0],
       };
       return {
         ...prev,
         points: prev.points + dayPts,
         credits: prev.credits + dayPts,
-        streak: newStreak,
-        lastClaimDate: today,
         transactions: [txn, ...prev.transactions],
       };
     });
@@ -263,6 +312,76 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     setState((prev) => ({ ...prev, streak: 0, lastClaimDate: null }));
   }, []);
 
+  const createPaymentSession = useCallback((tier: SubscriptionTier, amount: number, userId: string) => {
+    const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const session: PaymentSession = {
+      orderId,
+      userId,
+      tier,
+      amount,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60000).toISOString(), // 15 min expiry
+    };
+    setState((prev) => ({ ...prev, pendingPayment: session }));
+    return session;
+  }, []);
+
+  const verifyPayment = useCallback((orderId: string, signature: string, verified: boolean) => {
+    setState((prev) => {
+      if (!prev.pendingPayment || prev.pendingPayment.orderId !== orderId) return prev;
+      
+      if (verified) {
+        const connectsMap = { free: 2, silver: 25, gold: 60, platinum: 250 };
+        const newConnects = connectsMap[prev.pendingPayment.tier] || 0;
+        return {
+          ...prev,
+          subscription: prev.pendingPayment.tier,
+          connectsRemaining: newConnects,
+          totalConnects: prev.totalConnects + newConnects,
+          pendingPayment: { ...prev.pendingPayment, status: 'success', signature },
+        };
+      } else {
+        return {
+          ...prev,
+          pendingPayment: { ...prev.pendingPayment, status: 'failed' },
+        };
+      }
+    });
+  }, []);
+
+  const setAutoRenew = useCallback((enabled: boolean) => {
+    setState((prev) => ({ ...prev, autoRenewEnabled: enabled }));
+  }, []);
+
+  const addConnects = useCallback((count: number, description: string = 'Subscription purchase') => {
+    setState((prev) => {
+      const txn: PointTransaction = {
+        id: `t_${Date.now()}`,
+        type: 'purchase',
+        amount: count,
+        description,
+        date: new Date().toISOString().split('T')[0],
+      };
+      return {
+        ...prev,
+        connectsRemaining: prev.connectsRemaining + count,
+        totalConnects: prev.totalConnects + count,
+        transactions: [txn, ...prev.transactions],
+      };
+    });
+  }, []);
+
+  const deductConnects = useCallback((count: number = 1) => {
+    setState((prev) => {
+      if (prev.connectsRemaining <= 0) return prev;
+      return {
+        ...prev,
+        connectsRemaining: Math.max(0, prev.connectsRemaining - count),
+      };
+    });
+  }, []);
+
   const canClaimToday = state.lastClaimDate !== new Date().toISOString().split('T')[0];
   const pointsToFreeConnection = Math.max(0, 500 - (state.points % 500));
 
@@ -283,6 +402,11 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     setThemeMode,
     blockUser,
     unblockUser,
+    createPaymentSession,
+    verifyPayment,
+    setAutoRenew,
+    addConnects,
+    deductConnects,
   };
 });
 
