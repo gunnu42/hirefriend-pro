@@ -13,17 +13,9 @@ import { friends, categories } from '@/mocks/friends';
 import FriendCard from '@/components/FriendCard';
 import CategoryCard from '@/components/CategoryCard';
 import SearchBar from '@/components/SearchBar';
+import InteractiveDailyRewards from '@/components/InteractiveDailyRewards';
 import { useWallet } from '@/contexts/WalletContext';
-
-const dailyRewards = [
-  { day: 1, pts: 40 },
-  { day: 2, pts: 45 },
-  { day: 3, pts: 50 },
-  { day: 4, pts: 55 },
-  { day: 5, pts: 60 },
-  { day: 6, pts: 70 },
-  { day: 7, pts: 100 },
-];
+import { useDailyRewards } from '@/contexts/DailyRewardsContext';
 
 const stories = friends.filter(f => f.isFeatured).slice(0, 6).map(f => ({
   id: f.id,
@@ -42,7 +34,16 @@ export default function HomeScreen() {
   const router = useRouter();
   const [search, setSearch] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const { credits, streak, pointsToFreeConnection, canClaimToday, claimDailyReward, subscription } = useWallet();
+  const { credits, claimDailyReward: addPointsToWallet, subscription } = useWallet();
+  const {
+    rewards,
+    currentDay,
+    canClaimToday,
+    streakCount,
+    isClaimableDay,
+    claimReward,
+    loaded,
+  } = useDailyRewards();
 
   const featuredFriends = friends.filter((f) => f.isFeatured);
   const nearbyFriends = friends.filter((f) => f.isOnline);
@@ -67,21 +68,21 @@ export default function HomeScreen() {
     router.push('/explore');
   }, [router]);
 
-  const handleClaimDaily = useCallback(() => {
+  const handleClaimDaily = useCallback(async (day: number) => {
     if (!canClaimToday) {
       router.push('/refer-earn');
       return;
     }
-    const nextDay = streak + 1;
-    const reward = dailyRewards.find((r) => r.day === nextDay);
-    if (reward) {
+
+    const result = await claimReward(day);
+    if (result.success) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      claimDailyReward(reward.pts);
-      Alert.alert('Claimed!', `+${reward.pts} points added to your wallet!`);
+      addPointsToWallet(result.points);
+      Alert.alert('Claimed!', result.message);
     } else {
-      router.push('/refer-earn');
+      Alert.alert('Error', result.message);
     }
-  }, [canClaimToday, streak, claimDailyReward, router]);
+  }, [canClaimToday, claimReward, addPointsToWallet, router]);
 
   const handleStoryPress = useCallback((storyId: string) => {
     if (!isPremium) {
@@ -181,42 +182,17 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
-        <Pressable style={styles.dailyRewardCard} onPress={handleClaimDaily} testID="daily-reward-card">
-          <View style={styles.dailyRewardHeader}>
-            <View style={styles.dailyRewardTitleRow}>
-              <Flame size={18} color={Colors.primary} />
-              <Text style={styles.dailyRewardTitle}>Daily Rewards</Text>
-              <View style={styles.streakBadge}>
-                <Text style={styles.streakText}>{streak} day streak</Text>
-              </View>
-            </View>
-            <Text style={styles.dailyRewardSub}>
-              {canClaimToday ? 'Tap to claim today\'s reward!' : `Only ${pointsToFreeConnection} pts away from a free connection!`}
-            </Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dailyRewardRow}>
-            {dailyRewards.map((r) => {
-              const claimed = r.day <= streak;
-              const isNext = r.day === streak + 1;
-              return (
-                <View
-                  key={r.day}
-                  style={[
-                    styles.dailyDot,
-                    claimed && styles.dailyDotClaimed,
-                    isNext && styles.dailyDotNext,
-                  ]}
-                >
-                  <Text style={[styles.dailyDotDay, claimed && styles.dailyDotDayClaimed]}>D{r.day}</Text>
-                  <Text style={[styles.dailyDotPts, claimed && styles.dailyDotPtsClaimed]}>{r.pts}</Text>
-                </View>
-              );
-            })}
-          </ScrollView>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${((500 - pointsToFreeConnection) / 500) * 100}%` }]} />
-          </View>
-        </Pressable>
+        {loaded && (
+          <InteractiveDailyRewards
+            rewards={rewards}
+            currentDay={currentDay}
+            canClaimToday={canClaimToday}
+            streakCount={streakCount}
+            isClaimableDay={isClaimableDay}
+            onClaimReward={handleClaimDaily}
+            testID="daily-rewards"
+          />
+        )}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>

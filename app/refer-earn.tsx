@@ -9,16 +9,9 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-
-const dailyRewards = [
-  { day: 1, pts: 40, claimed: true },
-  { day: 2, pts: 45, claimed: true },
-  { day: 3, pts: 50, claimed: true },
-  { day: 4, pts: 55, claimed: false },
-  { day: 5, pts: 60, claimed: false },
-  { day: 6, pts: 70, claimed: false },
-  { day: 7, pts: 100, claimed: false },
-];
+import InteractiveDailyRewards from '@/components/InteractiveDailyRewards';
+import { useWallet } from '@/contexts/WalletContext';
+import { useDailyRewards } from '@/contexts/DailyRewardsContext';
 
 const referralHistory = [
   { id: '1', name: 'Mike T.', date: 'Feb 20, 2026', pts: 500, status: 'completed' },
@@ -29,8 +22,18 @@ const referralHistory = [
 export default function ReferEarnScreen() {
   const router = useRouter();
   const [referralCode] = useState<string>('HIRE-ALEX-2026');
-  const totalPoints = 320;
-  const currentStreak = 3;
+  const { credits, claimDailyReward: addPointsToWallet } = useWallet();
+  const {
+    rewards,
+    currentDay,
+    canClaimToday,
+    streakCount,
+    isClaimableDay,
+    claimReward,
+    loaded,
+  } = useDailyRewards();
+
+  const totalPoints = credits; // Use actual credits from wallet
   const totalReferrals = 3;
 
   const handleCopyCode = useCallback(() => {
@@ -52,6 +55,22 @@ export default function ReferEarnScreen() {
       console.log('Share error:', e);
     }
   }, [referralCode]);
+
+  const handleClaimDaily = useCallback(async (day: number) => {
+    if (!canClaimToday) {
+      Alert.alert('Already claimed', 'Come back tomorrow for your next reward!');
+      return;
+    }
+
+    const result = await claimReward(day);
+    if (result.success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      addPointsToWallet(result.points);
+      Alert.alert('Claimed!', result.message);
+    } else {
+      Alert.alert('Error', result.message);
+    }
+  }, [canClaimToday, claimReward, addPointsToWallet]);
 
   return (
     <View style={styles.container}>
@@ -87,7 +106,7 @@ export default function ReferEarnScreen() {
             </View>
             <View style={styles.statBox}>
               <Flame size={18} color={Colors.primary} />
-              <Text style={styles.statBoxValue}>{currentStreak}</Text>
+              <Text style={styles.statBoxValue}>{streakCount}</Text>
               <Text style={styles.statBoxLabel}>Day Streak</Text>
             </View>
           </View>
@@ -107,32 +126,17 @@ export default function ReferEarnScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Flame size={18} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Daily Streak</Text>
-          </View>
-          <Text style={styles.streakSub}>Open the app daily to earn points. {500 - totalPoints} pts to next free connection!</Text>
-          <View style={styles.dailyRow}>
-            {dailyRewards.map((r) => (
-              <View
-                key={r.day}
-                style={[
-                  styles.dailyDot,
-                  r.claimed && styles.dailyDotClaimed,
-                  r.day === currentStreak + 1 && styles.dailyDotNext,
-                ]}
-              >
-                <Text style={[styles.dailyDotDay, r.claimed && styles.dailyDotDayClaimed]}>D{r.day}</Text>
-                <Text style={[styles.dailyDotPts, r.claimed && styles.dailyDotPtsClaimed]}>{r.pts}</Text>
-              </View>
-            ))}
-          </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${(totalPoints / 500) * 100}%` }]} />
-          </View>
-          <Text style={styles.progressLabel}>{totalPoints}/500 points</Text>
-        </View>
+        {loaded && (
+          <InteractiveDailyRewards
+            rewards={rewards}
+            currentDay={currentDay}
+            canClaimToday={canClaimToday}
+            streakCount={streakCount}
+            isClaimableDay={isClaimableDay}
+            onClaimReward={handleClaimDaily}
+            testID="daily-rewards-refer"
+          />
+        )}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>

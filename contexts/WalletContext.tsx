@@ -206,25 +206,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     })();
   }, [state, loaded]);
 
-  const claimDailyReward = useCallback((dayPts: number, streakDay: number) => {
-    setState((prev) => {
-      const txn: PointTransaction = {
-        id: `t_${Date.now()}`,
-        type: 'attendance',
-        amount: dayPts,
-        description: `Day ${streakDay} check-in`,
-        date: new Date().toISOString().split('T')[0],
-      };
-      return {
-        ...prev,
-        points: prev.points + dayPts,
-        credits: prev.credits + dayPts,
-        transactions: [txn, ...prev.transactions],
-      };
-    });
-  }, []);
-
-  const addPoints = useCallback((amount: number, type: PointTransaction['type'], description: string) => {
+  const addPoints = useCallback((amount: number, type: PointTransaction['type'] = 'attendance', description: string = 'Points added') => {
     setState((prev) => {
       const txn: PointTransaction = {
         id: `t_${Date.now()}`,
@@ -241,6 +223,11 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       };
     });
   }, []);
+
+  // Legacy function for backward compatibility - now just adds points
+  const claimDailyReward = useCallback((amount: number) => {
+    addPoints(amount, 'attendance', 'Daily reward claimed');
+  }, [addPoints]);
 
   const deductPoints = useCallback((amount: number, description: string) => {
     setState((prev) => {
@@ -388,8 +375,9 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
   return {
     ...state,
     loaded,
-    canClaimToday,
-    pointsToFreeConnection,
+    // Note: canClaimToday and pointsToFreeConnection are deprecated - use DailyRewardsContext instead
+    canClaimToday: false, // Deprecated
+    pointsToFreeConnection, // Keep for backward compatibility but not used in new design
     claimDailyReward,
     addPoints,
     deductPoints,

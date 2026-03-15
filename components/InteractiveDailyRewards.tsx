@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Platform, ScrollView } from 'react-native';
 import { Flame } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import DailyRewardItem from './DailyRewardItem';
@@ -12,9 +12,9 @@ interface DailyReward {
 
 interface InteractiveDailyRewardsProps {
   rewards: DailyReward[];
-  currentStreak: number;
+  currentDay: number;
   canClaimToday: boolean;
-  pointsToFreeConnection: number;
+  streakCount: number;
   isClaimableDay: (day: number) => boolean;
   onClaimReward: (day: number) => void;
   testID?: string;
@@ -22,15 +22,46 @@ interface InteractiveDailyRewardsProps {
 
 export default function InteractiveDailyRewards({
   rewards,
-  currentStreak,
+  currentDay,
   canClaimToday,
-  pointsToFreeConnection,
+  streakCount,
   isClaimableDay,
   onClaimReward,
   testID,
 }: InteractiveDailyRewardsProps) {
   const flatListRef = useRef<FlatList>(null);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
+
+  // Scroll to current day when component mounts or currentDay changes
+  React.useEffect(() => {
+    if (flatListRef.current && !isUserScrolling) {
+      const index = Math.max(0, currentDay - 3); // Show a few days before current
+      flatListRef.current.scrollToIndex({
+        index,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    }
+  }, [currentDay, isUserScrolling]);
+
+  const getItemLayout = useCallback((data: any, index: number) => ({
+    length: 52 + 12, // item width + margin
+    offset: (52 + 12) * index,
+    index,
+  }), []);
+
+  const onScrollToIndexFailed = useCallback((info: any) => {
+    console.warn('ScrollToIndex failed for index:', info.index);
+    // Fallback: scroll to a valid index
+    const safeIndex = Math.min(info.index, rewards.length - 1);
+    if (safeIndex >= 0) {
+      flatListRef.current?.scrollToIndex({
+        index: safeIndex,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    }
+  }, [rewards.length]);
 
   return (
     <View style={styles.container} testID={testID}>
@@ -40,15 +71,13 @@ export default function InteractiveDailyRewards({
           <Flame size={18} color={Colors.primary} />
           <Text style={styles.title}>Daily Rewards</Text>
           <View style={styles.streakBadge}>
-            <Text style={styles.streakText}>{currentStreak} day streak</Text>
+            <Text style={styles.streakText}>{streakCount} day streak</Text>
           </View>
         </View>
         <Text style={styles.subtitle}>
-          {canClaimToday ? "Tap today's circle to claim!" : `Only ${pointsToFreeConnection} pts away from a free connection!`}
+          {canClaimToday ? "Tap today's circle to claim!" : `Come back tomorrow for Day ${currentDay}!`}
         </Text>
       </View>
-
-      {/* Top slider removed per design (keeping bottom progress bar) */}
 
       {/* Scrollable Rewards */}
       <FlatList
@@ -64,34 +93,25 @@ export default function InteractiveDailyRewards({
             points={item.pts}
             claimed={item.claimed}
             isClaimable={isClaimableDay(item.day)}
+            isActive={item.day === currentDay}
             onPress={() => onClaimReward(item.day)}
             testID={`daily-day-${item.day}`}
           />
         )}
         onScrollBeginDrag={() => setIsUserScrolling(true)}
         onScrollEndDrag={() => setIsUserScrolling(false)}
+        onMomentumScrollEnd={() => setIsUserScrolling(false)}
         scrollEventThrottle={16}
-        getItemLayout={(data, index) => ({
-          length: 52 + 12,
-          offset: (52 + 12) * index,
-          index,
-        })}
-        onScrollToIndexFailed={(info) => {
-          console.warn('ScrollToIndex failed for index:', info.index);
-        }}
+        getItemLayout={getItemLayout}
+        onScrollToIndexFailed={onScrollToIndexFailed}
+        snapToAlignment="center"
+        snapToInterval={52 + 12}
+        decelerationRate="fast"
+        initialScrollIndex={Math.max(0, currentDay - 3)}
       />
 
-      {/* Progress Bar */}
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBarBg}>
-          <View
-            style={[
-              styles.progressBarFill,
-              { width: `${((500 - pointsToFreeConnection) / 500) * 100}%` },
-            ]}
-          />
-        </View>
-      </View>
+      {/* Bottom orange line */}
+      <View style={styles.bottomLine} />
     </View>
   );
 }
@@ -103,8 +123,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     borderRadius: 16,
     padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
   } : {
     marginHorizontal: 16,
     marginTop: 16,
@@ -147,35 +165,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  sliderContainer: {
-    marginBottom: 16,
-    gap: 8,
-  },
-  dayMarker: {
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  dayMarkerText: {
-    fontSize: 12,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
   rewardsRow: {
-    gap: 0,
+    gap: 12,
     paddingVertical: 8,
   },
-  progressContainer: {
-    marginTop: 16,
-  },
-  progressBarBg: {
-    height: 6,
-    backgroundColor: Colors.surfaceAlt,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
+  bottomLine: {
+    height: 3,
     backgroundColor: Colors.primary,
-    borderRadius: 3,
+    borderRadius: 1.5,
+    marginTop: 16,
   },
 });

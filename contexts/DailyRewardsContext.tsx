@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
 
 const DAILY_REWARDS_KEY = 'hirefriend_daily_rewards';
-const CLAIMED_REWARDS_KEY = 'hirefriend_claimed_rewards';
 
 export interface DailyReward {
   day: number;
@@ -14,95 +13,86 @@ export interface DailyReward {
 interface DailyRewardsState {
   rewards: DailyReward[];
   claimedDays: Set<number>;
-  currentStreak: number;
-  lastClaimDate: string | null;
+  currentDay: number;
+  lastClaimedDate: string | null;
+  streakCount: number;
+  currentReward: number;
 }
 
-const POINTS_PER_DAY = 25;
-
-// Generate 365 days of rewards with fixed 25 points each
 const generateRewards = (): DailyReward[] => {
-  return Array.from({ length: 365 }, (_v, i) => ({
-    day: i + 1,
-    pts: POINTS_PER_DAY,
-    claimed: false,
-  }));
+  return Array.from({ length: 365 }, (_, i) => {
+    const day = i + 1;
+    const weekNumber = Math.ceil(day / 7);
+    const reward = 20 + (weekNumber - 1) * 5;
+    return {
+      day,
+      pts: reward,
+      claimed: false,
+    };
+  });
 };
 
 export const [DailyRewardsProvider, useDailyRewards] = createContextHook(() => {
   const [rewards, setRewards] = useState<DailyReward[]>(generateRewards());
   const [claimedDays, setClaimedDays] = useState<Set<number>>(new Set());
-  const [currentStreak, setCurrentStreak] = useState<number>(0);
-  const [lastClaimDate, setLastClaimDate] = useState<string | null>(null);
+  const [currentDay, setCurrentDay] = useState<number>(1);
+  const [lastClaimedDate, setLastClaimedDate] = useState<string | null>(null);
+  const [streakCount, setStreakCount] = useState<number>(0);
+  const [currentReward, setCurrentReward] = useState<number>(20);
   const [loaded, setLoaded] = useState<boolean>(false);
 
-  // Load persisted state on mount
+  // Load initial data from AsyncStorage (fallback until Firebase is set up)
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(DAILY_REWARDS_KEY),
-      AsyncStorage.getItem(CLAIMED_REWARDS_KEY),
-    ]).then(([rewardsStr, claimedStr]) => {
-      let newRewards = generateRewards();
-      let newClaimedDays = new Set<number>();
-      let newStreak = 0;
-      let newLastClaimDate: string | null = null;
-
-      if (rewardsStr) {
+    AsyncStorage.getItem(DAILY_REWARDS_KEY).then((dataStr) => {
+      if (dataStr) {
         try {
-          const parsed = JSON.parse(rewardsStr);
-          newStreak = parsed.streak ?? 0;
-          newLastClaimDate = parsed.lastClaimDate ?? null;
-        } catch {
-          /* ignore */
-        }
-      }
+          const data = JSON.parse(dataStr);
+          const claimedDaysArray = data.claimedDays || [];
+          const claimedSet = new Set<number>(claimedDaysArray);
 
-      if (claimedStr) {
-        try {
-          const parsed = JSON.parse(claimedStr);
-          newClaimedDays = new Set(parsed);
+          setCurrentDay(data.currentDay || 1);
+          setLastClaimedDate(data.lastClaimedDate || null);
+          setStreakCount(data.streakCount || 0);
+          setCurrentReward(data.currentReward || 20);
+
           // Update rewards based on claimed days
-          newRewards = newRewards.map((r) => ({
-            ...r,
-            claimed: newClaimedDays.has(r.day),
+          const updatedRewards = generateRewards().map(reward => ({
+            ...reward,
+            claimed: claimedSet.has(reward.day),
           }));
-        } catch {
-          /* ignore */
+          setRewards(updatedRewards);
+          setClaimedDays(claimedSet);
+        } catch (error) {
+          console.error('Error loading daily rewards data:', error);
         }
       }
-
-      setRewards(newRewards);
-      setClaimedDays(newClaimedDays);
-      setCurrentStreak(newStreak);
-      setLastClaimDate(newLastClaimDate);
       setLoaded(true);
     });
   }, []);
 
-  // Persist state whenever it changes
+  // Save data to AsyncStorage whenever it changes
   useEffect(() => {
     if (!loaded) return;
 
-    AsyncStorage.setItem(
-      DAILY_REWARDS_KEY,
-      JSON.stringify({
-        streak: currentStreak,
-        lastClaimDate,
-      })
-    );
+    const data = {
+      currentDay,
+      lastClaimedDate,
+      streakCount,
+      claimedDays: Array.from(claimedDays),
+      currentReward,
+    };
 
-    AsyncStorage.setItem(
-      CLAIMED_REWARDS_KEY,
-      JSON.stringify(Array.from(claimedDays))
-    );
-  }, [currentStreak, lastClaimDate, claimedDays, loaded]);
+    AsyncStorage.setItem(DAILY_REWARDS_KEY, JSON.stringify(data)).catch((error) => {
+      console.error('Error saving daily rewards data:', error);
+    });
+  }, [currentDay, lastClaimedDate, streakCount, claimedDays, currentReward, loaded]);
 
   const claimReward = useCallback(
-    (day: number): { success: boolean; points: number; message: string } => {
+    async (day: number): Promise<{ success: boolean; points: number; message: string }> => {
       const today = new Date().toISOString().split('T')[0];
 
       // Check if already claimed today
-      if (lastClaimDate === today) {
+      if (lastClaimedDate === today) {
         return {
           success: false,
           points: 0,
@@ -129,33 +119,26 @@ export const [DailyRewardsProvider, useDailyRewards] = createContextHook(() => {
         };
       }
 
-      // Only allow claiming the next day in sequence
-      const nextClaimableDay = currentStreak + 1;
-      if (day !== nextClaimableDay) {
+      // Only allow claiming the current day
+      if (day !== currentDay) {
         return {
           success: false,
           points: 0,
-          message: `Only day ${nextClaimableDay} can be claimed now`,
+          message: `Only day ${currentDay} can be claimed now`,
         };
       }
 
-      // Check if it's a future day
-      if (day > currentStreak + 1) {
-        return {
-          success: false,
-          points: 0,
-          message: 'Cannot claim future days',
-        };
-      }
-
-      // Claim the reward
+      // Update state
       const newClaimedDays = new Set(claimedDays);
       newClaimedDays.add(day);
-      setClaimedDays(newClaimedDays);
+      const nextDay = currentDay + 1;
+      const nextReward = 20 + (Math.ceil(nextDay / 7) - 1) * 5;
 
-      const newStreak = currentStreak + 1;
-      setCurrentStreak(newStreak);
-      setLastClaimDate(today);
+      setClaimedDays(newClaimedDays);
+      setCurrentDay(nextDay);
+      setStreakCount(prev => prev + 1);
+      setLastClaimedDate(today);
+      setCurrentReward(nextReward);
 
       setRewards((prev) =>
         prev.map((r) =>
@@ -169,21 +152,21 @@ export const [DailyRewardsProvider, useDailyRewards] = createContextHook(() => {
         message: `+${reward.pts} points claimed!`,
       };
     },
-    [rewards, claimedDays, currentStreak, lastClaimDate]
+    [rewards, claimedDays, currentDay, lastClaimedDate]
   );
 
-  const canClaimToday = lastClaimDate !== new Date().toISOString().split('T')[0];
-  const nextClaimableDay = currentStreak + 1;
-  const isClaimableDay = (day: number) => day === nextClaimableDay && canClaimToday;
+  const canClaimToday = lastClaimedDate !== new Date().toISOString().split('T')[0];
+  const isClaimableDay = (day: number) => day === currentDay && canClaimToday;
 
   return {
     rewards,
     claimedDays,
-    currentStreak,
-    lastClaimDate,
+    currentDay,
+    lastClaimedDate,
+    streakCount,
+    currentReward,
     loaded,
     canClaimToday,
-    nextClaimableDay,
     isClaimableDay,
     claimReward,
   };

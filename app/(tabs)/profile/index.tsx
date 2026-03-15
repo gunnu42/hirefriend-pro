@@ -160,7 +160,7 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
-        <Pressable style={styles.proBanner} onPress={() => router.push('/pro-benefits')} testID="go-pro-banner">
+        <Pressable style={styles.proBanner} onPress={() => router.push('/subscription')} testID="go-pro-banner">
           <View style={styles.proBannerLeft}>
             <View style={styles.proBannerIcon}>
               <Crown size={22} color={Colors.gold} />

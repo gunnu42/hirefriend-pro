@@ -30,13 +30,13 @@ const tiers: TierConfig[] = [
     name: 'Free',
     price: '₹0',
     period: '',
-    connects: '0 Connects',
+    connects: '2 Connects (lifetime demo)',
     features: [
       { text: 'Browse profiles', locked: false },
       { text: 'Daily check-in rewards', locked: false },
+      { text: '2 demo profile connects', locked: false },
       { text: 'Messaging', locked: true },
-      { text: 'View stories', locked: true },
-      { text: 'Profile connects', locked: true },
+      { text: 'Full story access', locked: true },
     ],
     color: Colors.textSecondary,
     popular: false,
@@ -51,8 +51,7 @@ const tiers: TierConfig[] = [
       { text: '20 friend connections', locked: false },
       { text: 'Standard support', locked: false },
       { text: 'Messaging unlocked', locked: false },
-      { text: 'Profile visibility', locked: false },
-      { text: 'View stories (blurred)', locked: true },
+      { text: 'Profile visibility boost', locked: false },
     ],
     color: '#94A3B8',
     popular: false,
@@ -62,13 +61,13 @@ const tiers: TierConfig[] = [
     name: 'Gold',
     price: '₹3,500',
     period: 'one-time',
-    connects: '40 Connects',
+    connects: '50 Connects',
     features: [
-      { text: '40 friend connections', locked: false },
+      { text: '50 friend connections', locked: false },
       { text: 'Priority chat access', locked: false },
-      { text: 'Verified badge', locked: false },
+      { text: 'Premium badge', locked: false },
       { text: 'Profile boost (3x views)', locked: false },
-      { text: 'View all stories', locked: false },
+      { text: 'Full story access', locked: false },
       { text: 'Priority support', locked: false },
     ],
     color: Colors.gold,
@@ -80,14 +79,13 @@ const tiers: TierConfig[] = [
     name: 'Platinum',
     price: '₹5,000',
     period: 'one-time',
-    connects: '300 Connects',
+    connects: '200 Connects',
     features: [
-      { text: '300 connections', locked: false },
-      { text: 'Gold Elite badge', locked: false },
+      { text: '200 friend connections', locked: false },
+      { text: 'Platinum crown badge', locked: false },
       { text: '24/7 priority support', locked: false },
-      { text: 'Early access to features', locked: false },
-      { text: 'Zero service fees', locked: false },
-      { text: 'Profile boost (5x views)', locked: false },
+      { text: 'Early access to new features', locked: false },
+      { text: 'Highest profile boost', locked: false },
       { text: 'Full story access', locked: false },
     ],
     color: '#8B5CF6',
@@ -100,7 +98,7 @@ export default function SubscriptionScreen() {
   const router = useRouter();
   const { subscription, setSubscription, addBillingRecord } = useWallet();
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier>(
-    subscription === 'free' ? 'gold' : subscription
+    subscription === 'free' ? 'silver' : subscription
   );
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
   const successAnim = useRef(new Animated.Value(0)).current;
