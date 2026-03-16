@@ -344,7 +344,16 @@ export default function BecomeFriendScreen() {
                 </View>
                 {!data.mobileVerified ? (
                   <>
-                    <Pressable style={styles.sendOtpBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); Alert.alert('OTP Sent', 'A 4-digit OTP has been sent to your mobile.'); }}>
+                    <Pressable
+                      style={styles.sendOtpBtn}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.push({
+                          pathname: '/info',
+                          params: { title: 'OTP Sent', message: 'A 4-digit OTP has been sent to your mobile.', actionLabel: 'OK' },
+                        });
+                      }}
+                    >
                       <Text style={styles.sendOtpText}>Send OTP</Text>
                     </Pressable>
                     <View style={styles.otpRow}>
@@ -453,7 +462,7 @@ export default function BecomeFriendScreen() {
 
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>City *</Text>
-                <Pressable style={[styles.inputRow, errors.city ? styles.inputError : null]} onPress={() => { if (data.state) setShowDropdown('city'); else Alert.alert('Select State', 'Please select a state first.'); }}>
+                <Pressable style={[styles.inputRow, errors.city ? styles.inputError : null]} onPress={() => { if (data.state) setShowDropdown('city'); else router.push({ pathname: '/info', params: { title: 'Select State', message: 'Please select a state first.', actionLabel: 'OK' } }); }}>
                   <MapPin size={18} color={Colors.textTertiary} />
                   <Text style={[styles.dropdownText, !data.city && styles.dropdownPlaceholder]}>
                     {data.city || 'Select your city'}

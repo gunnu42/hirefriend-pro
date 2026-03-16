@@ -54,17 +54,25 @@ export default function BookingScreen() {
       Alert.alert('Select Time', 'Please select a time to continue.');
       return;
     }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Animated.sequence([
       Animated.timing(confirmAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
       Animated.timing(confirmAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
     ]).start();
-    Alert.alert(
-      'Booking Confirmed!',
-      `Your ${serviceType === 'virtual' ? 'virtual' : 'in-person'} booking with ${friend?.name} has been confirmed for ${dates[selectedDate].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${selectedTime} (${actualDuration}h).`,
-      [{ text: 'Great!', onPress: () => router.back() }]
-    );
-  }, [selectedHour, selectedMinute, selectedAmPm, friend, dates, selectedDate, actualDuration, router, confirmAnim, serviceType, selectedTime]);
+
+    router.push({
+      pathname: '/payment',
+      params: {
+        friendId: friend?.id ?? '',
+        date: dates[selectedDate].toISOString(),
+        time: selectedTime,
+        duration: actualDuration.toString(),
+        total: finalTotal.toString(),
+        serviceType,
+      },
+    });
+  }, [selectedHour, selectedMinute, selectedAmPm, friend, dates, selectedDate, actualDuration, router, confirmAnim, serviceType, selectedTime, finalTotal]);
 
   const getDayName = (date: Date) => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

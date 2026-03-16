@@ -46,8 +46,8 @@ export default function HelpScreen() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const handleContact = useCallback((method: string) => {
-    Alert.alert('Contact Us', `Opening ${method} support...`);
-  }, []);
+    router.push({ pathname: '/contact-support', params: { method } });
+  }, [router]);
 
   return (
     <View style={styles.container}>

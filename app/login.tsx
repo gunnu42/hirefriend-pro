@@ -108,11 +108,19 @@ export default function LoginScreen() {
               <View style={styles.divider} />
             </View>
 
-            <Pressable style={styles.socialBtn} onPress={() => Alert.alert('Google Sign In', 'Google OAuth would be integrated here.')} testID="google-btn">
+            <Pressable
+              style={styles.socialBtn}
+              onPress={() => router.push({ pathname: '/info', params: { title: 'Google Sign In', message: 'Google OAuth flow would be implemented here.', actionLabel: 'Got it' } })}
+              testID="google-btn"
+            >
               <Text style={styles.socialBtnText}>Continue with Google</Text>
             </Pressable>
 
-            <Pressable style={styles.socialBtn} onPress={() => Alert.alert('Phone Sign In', 'Phone OTP verification would be integrated here.')} testID="phone-btn">
+            <Pressable
+              style={styles.socialBtn}
+              onPress={() => router.push({ pathname: '/info', params: { title: 'Phone Sign In', message: 'Phone OTP verification would be implemented here.', actionLabel: 'Got it' } })}
+              testID="phone-btn"
+            >
               <Text style={styles.socialBtnText}>Continue with Phone</Text>
             </Pressable>
           </View>

@@ -57,8 +57,7 @@ export default function HomeScreen() {
   const handleCategoryPress = useCallback(
     (category: { id: string; name: string }) => {
       router.push({
-        pathname: '/explore',
-        params: { category: category.name },
+        pathname: `/category/${encodeURIComponent(category.name)}`,
       });
     },
     [router]

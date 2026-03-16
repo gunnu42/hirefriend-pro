@@ -107,14 +107,14 @@ export default function ChatScreen() {
           <View style={styles.headerActions}>
             <Pressable
               style={styles.headerActionBtn}
-              onPress={() => console.log('Phone call')}
+              onPress={() => router.push({ pathname: '/call', params: { friendId: friend.id, method: 'voice' } })}
               testID="call-button"
             >
               <Phone size={20} color={Colors.text} />
             </Pressable>
             <Pressable
               style={styles.headerActionBtn}
-              onPress={() => console.log('Video call')}
+              onPress={() => router.push({ pathname: '/call', params: { friendId: friend.id, method: 'video' } })}
               testID="video-button"
             >
               <Video size={20} color={Colors.text} />

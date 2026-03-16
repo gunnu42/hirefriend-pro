@@ -24,12 +24,8 @@ export default function EditProfileScreen() {
   }, [router]);
 
   const handleChangePhoto = useCallback(() => {
-    Alert.alert('Change Photo', 'Choose an option', [
-      { text: 'Take Photo', onPress: () => console.log('Camera') },
-      { text: 'Choose from Library', onPress: () => console.log('Library') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, []);
+    router.push('/photo-picker');
+  }, [router]);
 
   return (
     <View style={styles.container}>

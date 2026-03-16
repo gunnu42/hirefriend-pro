@@ -23,8 +23,8 @@ export default function BillingHistoryScreen() {
 
   const handleDownload = useCallback((record: BillingRecord) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert('Download Receipt', `PDF receipt for ${record.invoiceId} would be downloaded.`);
-  }, []);
+    router.push(`/receipt/${record.id}`);
+  }, [router]);
 
   return (
     <View style={styles.container}>
