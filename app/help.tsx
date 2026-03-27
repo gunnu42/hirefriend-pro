@@ -46,7 +46,7 @@ export default function HelpScreen() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const handleContact = useCallback((method: string) => {
-    router.push({ pathname: '/contact-support', params: { method } });
+    router.push({ pathname: '/contact-support' as any, params: { method } });
   }, [router]);
 
   return (
@@ -228,4 +228,5 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
+
 

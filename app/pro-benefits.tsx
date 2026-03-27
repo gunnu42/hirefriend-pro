@@ -24,11 +24,12 @@ const benefits = [
 
 export default function ProBenefitsScreen() {
   const router = useRouter();
-  const { subscription } = useWallet();
+  const walletData = useWallet();
+  const subscription = walletData?.subscription ?? 'free';
 
   const handleUpgrade = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    router.push('/pricing');
+    router.push('/subscription' as any);
   }, [router]);
 
   return (
@@ -204,4 +205,5 @@ const styles = StyleSheet.create({
   },
   upgradeBtnText: { fontSize: 16, fontWeight: '700' as const, color: '#fff' },
 });
+
 

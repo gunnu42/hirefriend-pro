@@ -13,7 +13,9 @@ import { friends } from '@/mocks/friends';
 
 export default function BlockedUsersScreen() {
   const router = useRouter();
-  const { blockedUsers, unblockUser } = useWallet();
+  const walletData = useWallet();
+  const blockedUsers = walletData?.blockedUsers ?? [];
+  const unblockUser = walletData?.unblockUser ?? (() => {});
 
   const blockedFriends = friends.filter(f => blockedUsers.includes(f.id));
 

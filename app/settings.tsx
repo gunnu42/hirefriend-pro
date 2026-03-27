@@ -12,7 +12,10 @@ import { useWallet } from '@/contexts/WalletContext';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { themeMode, setThemeMode, blockedUsers } = useWallet();
+  const walletData = useWallet();
+  const themeMode = walletData?.themeMode ?? 'light';
+  const setThemeMode = walletData?.setThemeMode ?? (() => {});
+  const blockedUsers = walletData?.blockedUsers ?? [];
   const [pushNotifications, setPushNotifications] = useState<boolean>(true);
   const [emailNotifications, setEmailNotifications] = useState<boolean>(false);
   const [locationSharing, setLocationSharing] = useState<boolean>(true);
@@ -104,7 +107,7 @@ export default function SettingsScreen() {
             />
           </View>
           <View style={styles.divider} />
-          <Pressable style={styles.settingRow} onPress={() => router.push('/blocked-users')} testID="blocked-users">
+          <Pressable style={styles.settingRow} onPress={() => router.push('/blocked-users' as any)} testID="blocked-users">
             <View style={styles.settingLeft}>
               <Ban size={20} color={Colors.textSecondary} />
               <Text style={styles.settingLabel}>Blocked Users</Text>

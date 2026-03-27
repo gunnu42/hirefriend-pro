@@ -1,27 +1,34 @@
-import React, { useMemo, useCallback, useRef } from 'react';
+import React, { useMemo, useCallback, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Animated,
+  View, Text, StyleSheet, ScrollView, Pressable, Animated, Modal,
+  Alert, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ArrowLeft, Heart, Star, MapPin, Clock, BadgeCheck,
-  MessageCircle, Globe, Users, Calendar, Share2,
+  MessageCircle, Globe, Users, Calendar, Share2, X,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { friends } from '@/mocks/friends';
 import { useFavorites } from '@/contexts/FavoritesContext';
-import { useWallet } from '@/contexts/WalletContext';
+import { useSubscription } from '@/contexts/SubscriptionContextUnified';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/supabase';
 
 export default function FriendDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { subscription } = useWallet();
+  const { currentPlan } = useSubscription();
+  const { user } = useAuth();
   const heartAnim = useRef(new Animated.Value(1)).current;
-  const isPremium = subscription !== 'free';
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [selectedRating, setSelectedRating] = useState(0);
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const isPremium = currentPlan !== 'free';
 
   const friend = useMemo(() => friends.find((f) => f.id === id), [id]);
 
@@ -41,6 +48,53 @@ export default function FriendDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('Share pressed');
   }, []);
+
+  const handleRatePress = useCallback(() => {
+    if (!user) {
+      Alert.alert('Sign In Required', 'Please sign in to rate this friend.');
+      router.push('/login' as any);
+      return;
+    }
+    setRatingModalVisible(true);
+  }, [user, router]);
+
+  const handleSubmitRating = useCallback(async () => {
+    if (!user?.id || !friend || selectedRating === 0) {
+      Alert.alert('Error', 'Please select a rating');
+      return;
+    }
+
+    try {
+      setSubmittingRating(true);
+      console.log('[Friend] Submitting rating:', { reviewer_id: user.id, reviewed_user_id: friend.id, rating: selectedRating });
+
+      const { error } = await supabase
+        .from('reviews')
+        .upsert({
+          reviewer_id: user.id,
+          reviewed_user_id: friend.id,
+          rating: selectedRating,
+          created_at: new Date().toISOString(),
+        }, {
+          onConflict: 'reviewer_id, reviewed_user_id'
+        });
+
+      if (error) {
+        console.error('[Friend] Rating error:', error);
+        throw error;
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', `You rated ${friend.name} ${selectedRating} star${selectedRating > 1 ? 's' : ''}.`);
+      setRatingModalVisible(false);
+      setSelectedRating(0);
+    } catch (err) {
+      console.error('[Friend] Rating submission failed:', err);
+      Alert.alert('Error', 'Failed to submit rating. Please try again.');
+    } finally {
+      setSubmittingRating(false);
+    }
+  }, [user, friend, selectedRating]);
 
   if (!friend) {
     return (
@@ -192,10 +246,71 @@ export default function FriendDetailScreen() {
               <Text style={styles.reviewComment}>{review.comment}</Text>
             </View>
           ))}
+
+          {/* Rate this friend button */}
+          <Pressable
+            onPress={handleRatePress}
+            style={styles.rateButton}
+            testID="rate-friend-button"
+          >
+            <Star size={18} color={Colors.primary} />
+            <Text style={styles.rateButtonText}>Rate this friend</Text>
+          </Pressable>
         </View>
 
         <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* Rating Modal */}
+      <Modal
+        visible={ratingModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRatingModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rate {friend.name}</Text>
+              <Pressable onPress={() => setRatingModalVisible(false)} disabled={submittingRating}>
+                <X size={24} color={Colors.text} />
+              </Pressable>
+            </View>
+
+            <View style={styles.ratingSelector}>
+              {[1, 2, 3, 4, 5].map((rating) => (
+                <Pressable
+                  key={rating}
+                  onPress={() => setSelectedRating(rating)}
+                  disabled={submittingRating}
+                >
+                  <Star
+                    size={48}
+                    color={rating <= selectedRating ? Colors.primary : Colors.borderLight}
+                    fill={rating <= selectedRating ? Colors.primary : 'transparent'}
+                  />
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.ratingText}>
+              {selectedRating > 0 ? `You're rating: ${selectedRating} star${selectedRating > 1 ? 's' : ''}` : 'Select a rating'}
+            </Text>
+
+            <Pressable
+              onPress={handleSubmitRating}
+              disabled={selectedRating === 0 || submittingRating}
+              style={[styles.submitRatingBtn, (selectedRating === 0 || submittingRating) && styles.submitRatingBtnDisabled]}
+            >
+              {submittingRating ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitRatingBtnText}>Submit Rating</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.bottomBar}>
         <SafeAreaView edges={['bottom']} style={styles.bottomBarInner}>
@@ -205,14 +320,14 @@ export default function FriendDetailScreen() {
           </View>
           <View style={styles.bottomActions}>
             <Pressable
-              onPress={() => isPremium ? router.push(`/chat/${friend.id}`) : router.push('/subscription')}
+              onPress={() => isPremium ? router.push(`/chat/${friend.id}` as any) : router.push('/subscription' as any)}
               style={styles.messageBtn}
               testID="message-friend-button"
             >
               <MessageCircle size={20} color={Colors.primary} />
             </Pressable>
             <Pressable
-              onPress={() => router.push(`/booking/${friend.id}`)}
+              onPress={() => router.push(`/booking/${friend.id}` as any)}
               style={styles.hireBtn}
               testID="hire-button"
             >
@@ -536,5 +651,79 @@ const styles = StyleSheet.create({
   notFoundText: {
     fontSize: 18,
     color: Colors.textSecondary,
+  },
+  rateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    marginTop: 14,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  rateButtonText: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.primary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '85%',
+    maxWidth: 320,
+    alignItems: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    flex: 1,
+    textAlign: 'center',
+  },
+  ratingSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  ratingText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 20,
+    fontWeight: '500' as const,
+    textAlign: 'center',
+  },
+  submitRatingBtn: {
+    width: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitRatingBtnDisabled: {
+    opacity: 0.5,
+  },
+  submitRatingBtnText: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#fff',
   },
 });

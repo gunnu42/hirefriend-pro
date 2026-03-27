@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Pressable, Alert, Animated,
+  View, Text, StyleSheet, FlatList, Pressable, Alert, Animated, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +8,9 @@ import { useRouter } from 'expo-router';
 import { Calendar, MapPin, Clock, Check, X, CalendarDays } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { bookings, Booking } from '@/mocks/bookings';
+import { supabase } from '@/supabase';
+import { Booking } from '@/mocks/bookings';
+import { useAuth } from '@/contexts/AuthContext';
 
 type TabType = 'upcoming' | 'completed' | 'cancelled';
 
@@ -27,7 +29,7 @@ function BookingCard({ booking }: { booking: Booking }) {
       Animated.timing(scaleAnim, { toValue: 0.97, duration: 60, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 60, useNativeDriver: true }),
     ]).start();
-    router.push(`/friend/${booking.friendId}`);
+    router.push(`/friend/${booking.friendId}` as any);
   }, [booking.friendId, router, scaleAnim]);
 
   const handleConfirmDone = useCallback(() => {
@@ -108,11 +110,68 @@ function BookingCard({ booking }: { booking: Booking }) {
 const MemoizedBookingCard = React.memo(BookingCard);
 
 export default function BookingsScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('upcoming');
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch bookings from Supabase
+  const fetchBookings = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          client_id,
+          friend_id,
+          status,
+          booking_date,
+          start_time,
+          duration_hours,
+          venue,
+          total_amount,
+          activity_type,
+          created_at,
+          friend:users!bookings_friend_id_fkey(id, full_name, avatar_url)
+        `)
+        .eq('client_id', user.id)
+        .order('booking_date', { ascending: false });
+
+      if (error) throw error;
+
+      // Transform data to match component expectations
+      const formattedBookings = (data || []).map((booking: any) => ({
+        id: booking.id,
+        friendId: booking.friend_id,
+        friendName: booking.friend?.full_name || 'Unknown',
+        friendAvatar: booking.friend?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop',
+        activity: booking.activity_type || 'General Activity',
+        date: new Date(booking.booking_date).toLocaleDateString(),
+        time: booking.start_time || 'TBD',
+        duration: booking.duration_hours || 1,
+        venue: booking.venue || 'TBD',
+        price: booking.total_amount || 0,
+        status: booking.status || 'upcoming',
+      }));
+
+      setBookings(formattedBookings);
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
 
   const filtered = useMemo(
     () => bookings.filter((b) => b.status === activeTab),
-    [activeTab]
+    [activeTab, bookings]
   );
 
   const handleTabPress = useCallback((tab: TabType) => {
@@ -147,19 +206,26 @@ export default function BookingsScreen() {
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => <MemoizedBookingCard booking={item} />}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <CalendarDays size={48} color={Colors.textTertiary} />
+          loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.loadingText}>Loading bookings...</Text>
             </View>
-            <Text style={styles.emptyTitle}>No {activeTab} bookings</Text>
-            <Text style={styles.emptySubtitle}>
-              {activeTab === 'upcoming'
-                ? 'Book a friend to get started!'
-                : activeTab === 'completed'
-                ? 'Your completed sessions will appear here'
-                : 'No cancelled bookings'}
-            </Text>
-          </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIcon}>
+                <CalendarDays size={48} color={Colors.textTertiary} />
+              </View>
+              <Text style={styles.emptyTitle}>No {activeTab} bookings</Text>
+              <Text style={styles.emptySubtitle}>
+                {activeTab === 'upcoming'
+                  ? 'Book a friend to get started!'
+                  : activeTab === 'completed'
+                  ? 'Your completed sessions will appear here'
+                  : 'No cancelled bookings'}
+              </Text>
+            </View>
+          )
         }
       />
     </View>
@@ -372,6 +438,16 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
   },
 });
 

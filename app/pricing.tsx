@@ -80,7 +80,11 @@ function getTierIcon(id: string) {
 
 export default function PricingScreen() {
   const router = useRouter();
-  const { credits, kycStatus, subscription, pointsToFreeConnection } = useWallet();
+  const walletData = useWallet();
+  const credits = walletData?.credits ?? 0;
+  const kycStatus = walletData?.kycStatus ?? 'pending';
+  const subscription = walletData?.subscription ?? 'free';
+  const pointsToFreeConnection = walletData?.pointsToFreeConnection ?? 0;
   const [selectedTier, setSelectedTier] = useState<string>('gold');
 
   const handlePurchase = useCallback(() => {
@@ -94,7 +98,7 @@ export default function PricingScreen() {
           'Complete identity verification to unlock your free trial connection.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Verify Now', onPress: () => router.push('/kyc-verification') },
+            { text: 'Verify Now', onPress: () => router.push('/kyc-verification' as any) },
           ]
         );
       } else {
@@ -106,7 +110,7 @@ export default function PricingScreen() {
       return;
     }
 
-    router.push({ pathname: '/checkout', params: { tier: selectedTier } });
+    router.push({ pathname: '/checkout' as any, params: { tier: selectedTier } });
   }, [selectedTier, kycStatus, router]);
 
   return (
@@ -131,7 +135,7 @@ export default function PricingScreen() {
               <Text style={styles.balanceLabel}>Current Balance</Text>
               <Text style={styles.balanceValue}>{credits} Credits</Text>
             </View>
-            <Pressable style={styles.walletLink} onPress={() => router.push('/wallet')} testID="wallet-link">
+            <Pressable style={styles.walletLink} onPress={() => router.push('/wallet' as any)} testID="wallet-link">
               <Text style={styles.walletLinkText}>Wallet</Text>
             </Pressable>
           </View>
@@ -216,7 +220,7 @@ export default function PricingScreen() {
           <Text style={styles.guaranteeText}>100% secure payment · Money-back guarantee</Text>
         </View>
 
-        <Pressable style={styles.billingLink} onPress={() => router.push('/billing-history')} testID="billing-link">
+        <Pressable style={styles.billingLink} onPress={() => router.push('/billing-history' as any)} testID="billing-link">
           <Text style={styles.billingLinkText}>View Billing History</Text>
         </Pressable>
 
@@ -340,4 +344,5 @@ const styles = StyleSheet.create({
   },
   purchaseBtnText: { fontSize: 16, fontWeight: '700' as const, color: '#fff' },
 });
+
 

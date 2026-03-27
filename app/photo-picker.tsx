@@ -24,12 +24,12 @@ export default function PhotoPickerScreen() {
         <Text style={styles.title}>Select an option</Text>
         <Text style={styles.subtitle}>You can take a new photo or choose one from your library.</Text>
 
-        <Pressable style={styles.option} onPress={() => router.push('/info', { title: 'Take Photo', message: 'Camera access would be requested here.', actionLabel: 'Got it' })} testID="take-photo">
+        <Pressable style={styles.option} onPress={() => router.push('/info' as any, { title: 'Take Photo', message: 'Camera access would be requested here.', actionLabel: 'Got it' } as any)} testID="take-photo">
           <View style={styles.optionIcon}><Camera size={20} color={Colors.primary} /></View>
           <Text style={styles.optionText}>Take Photo</Text>
         </Pressable>
 
-        <Pressable style={styles.option} onPress={() => router.push('/info', { title: 'Photo Library', message: 'Library access would be requested here.', actionLabel: 'Got it' })} testID="choose-photo">
+        <Pressable style={styles.option} onPress={() => router.push('/info' as any, { title: 'Photo Library', message: 'Library access would be requested here.', actionLabel: 'Got it' } as any)} testID="choose-photo">
           <View style={styles.optionIcon}><ImagePlus size={20} color={Colors.primary} /></View>
           <Text style={styles.optionText}>Choose from Library</Text>
         </Pressable>

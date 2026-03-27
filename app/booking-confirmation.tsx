@@ -60,11 +60,11 @@ export default function BookingConfirmationScreen() {
           <Text style={styles.value}>₹{total}</Text>
         </View>
 
-        <Pressable style={styles.button} onPress={() => router.push('/(tabs)/(home)')} testID="go-home">
+        <Pressable style={styles.button} onPress={() => router.push('/(tabs)/(home)' as any)} testID="go-home">
           <Home size={18} color="#fff" />
           <Text style={styles.buttonText}>Go to Home</Text>
         </Pressable>
-        <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => router.push('/(tabs)/bookings')} testID="view-bookings">
+        <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => router.push('/(tabs)/bookings' as any)} testID="view-bookings">
           <Text style={[styles.buttonText, styles.secondaryText]}>View My Bookings</Text>
         </Pressable>
       </View>

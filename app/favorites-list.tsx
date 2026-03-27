@@ -9,7 +9,7 @@ import { ArrowLeft, Mail, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
-export default function ForgotPasswordScreen() {
+export default function FavoritesListScreen() {
   const router = useRouter();
   const [email, setEmail] = useState<string>('');
   const [sent, setSent] = useState<boolean>(false);
@@ -71,7 +71,7 @@ export default function ForgotPasswordScreen() {
                 </Animated.View>
               </Pressable>
 
-              <Pressable onPress={() => router.replace('/login')} style={styles.backToLogin} testID="back-to-login">
+              <Pressable onPress={() => router.replace('/login' as any)} style={styles.backToLogin} testID="back-to-login">
                 <Text style={styles.backToLoginText}>Back to Sign In</Text>
               </Pressable>
             </View>
@@ -84,7 +84,7 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.successSubtitle}>
                 We've sent a password reset link to {email}. Please check your inbox.
               </Text>
-              <Pressable style={styles.sendBtn} onPress={() => router.replace('/login')} testID="go-login">
+              <Pressable style={styles.sendBtn} onPress={() => router.replace('/login' as any)} testID="go-login">
                 <Text style={styles.sendBtnText}>Back to Sign In</Text>
               </Pressable>
               <Pressable onPress={() => { setSent(false); }} style={styles.resendBtn} testID="resend-btn">
@@ -139,4 +139,5 @@ const styles = StyleSheet.create({
   resendBtn: { marginTop: 20 },
   resendText: { fontSize: 14, fontWeight: '600' as const, color: Colors.primary },
 });
+
 

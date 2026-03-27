@@ -8,65 +8,165 @@ import {
   ArrowLeft, Video, Upload, Zap, CheckCircle2, Clock,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import Colors from '@/constants/colors';
-import { useWallet } from '@/contexts/WalletContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/supabase';
+
+interface VideoRecord {
+  id: string;
+  user_id: string;
+  video_url: string;
+  caption: string;
+  status: 'pending' | 'verified' | 'rejected';
+  points_awarded: number;
+  created_at: string;
+}
 
 export default function UploadVibeScreen() {
   const router = useRouter();
-  const { addPoints } = useWallet();
+  const { user } = useAuth();
   const [uploaded, setUploaded] = useState<boolean>(false);
   const [uploading, setUploading] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
+  const [previousVideos, setPreviousVideos] = useState<VideoRecord[]>([]);
+  const [loadingVideos, setLoadingVideos] = useState(true);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  const simulateUploadProgress = useCallback(() => {
-    setUploading(true);
-    setProgress(0);
-    progressAnim.setValue(0);
+  // Load previous videos on mount
+  React.useEffect(() => {
+    if (!user?.id) return;
+    loadPreviousVideos();
+  }, [user?.id]);
 
-    const steps = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 0.95, 1.0];
-    let stepIndex = 0;
+  // Real-time listener for video status updates
+  React.useEffect(() => {
+    if (!user?.id) return;
 
-    const interval = setInterval(() => {
-      if (stepIndex < steps.length) {
-        const val = steps[stepIndex];
-        setProgress(Math.round(val * 100));
-        Animated.timing(progressAnim, {
-          toValue: val,
-          duration: 300,
-          useNativeDriver: false,
-        }).start();
-        stepIndex++;
-      } else {
-        clearInterval(interval);
-        setUploading(false);
-        setUploaded(true);
-        addPoints(400, 'vlog', 'Uploaded meetup vibe video');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    }, 400);
-  }, [addPoints, progressAnim]);
-
-  const handleUpload = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      'Upload Vibe',
-      'Select a 15-30 second meetup video to upload.',
-      [
-        { text: 'Cancel', style: 'cancel' },
+    const channel = supabase
+      .channel(`videos-${user.id}`)
+      .on(
+        'postgres_changes',
         {
-          text: 'Choose Video',
-          onPress: simulateUploadProgress,
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'videos',
+          filter: `user_id=eq.${user.id}`,
         },
-      ]
-    );
-  }, [simulateUploadProgress]);
+        (payload: any) => {
+          const updatedVideo = payload.new as VideoRecord;
+          setPreviousVideos((prev) =>
+            prev.map((v) => (v.id === updatedVideo.id ? updatedVideo : v))
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user?.id]);
+
+  const loadPreviousVideos = async () => {
+    try {
+      setLoadingVideos(true);
+      const { data, error } = await supabase
+        .from('videos')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+      setPreviousVideos(data ?? []);
+    } catch (err) {
+      console.error('[Upload] Load videos error:', err);
+    } finally {
+      setLoadingVideos(false);
+    }
+  };
+
+  const handleUpload = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      if (!asset.uri) throw new Error('No video URI');
+
+      setUploading(true);
+      setProgress(0);
+      progressAnim.setValue(0);
+
+      // Simulate upload progress
+      const steps = [0.15, 0.35, 0.55, 0.75, 0.9, 1.0];
+      let stepIndex = 0;
+
+      // Upload video to storage
+      const fileName = `vlogs/${user?.id}/${Date.now()}.mp4`;
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+
+      const uploadInterval = setInterval(() => {
+        if (stepIndex < steps.length - 1) {
+          const val = steps[stepIndex];
+          setProgress(Math.round(val * 100));
+          Animated.timing(progressAnim, {
+            toValue: val,
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
+          stepIndex++;
+        } else if (stepIndex === steps.length - 1) {
+          setProgress(100);
+          clearInterval(uploadInterval);
+        }
+      }, 600);
+
+      const { error: uploadError } = await supabase.storage
+        .from('vlogs')
+        .upload(fileName, blob);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('vlogs')
+        .getPublicUrl(fileName);
+
+      // Create video record
+      const { error: dbError } = await supabase.from('videos').insert({
+        user_id: user?.id,
+        video_url: urlData.publicUrl,
+        caption: 'My HireFriend meetup vibe',
+        status: 'pending',
+        points_awarded: 0,
+      });
+
+      if (dbError) throw dbError;
+
+      setUploading(false);
+      setUploaded(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await loadPreviousVideos();
+    } catch (err) {
+      console.error('[Upload] Error:', err);
+      setUploading(false);
+      Alert.alert('Upload Failed', 'Please try again');
+    }
+  }, [user?.id, progressAnim]);
 
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safeTop}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} testID="back-button">
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <ArrowLeft size={22} color={Colors.text} />
           </Pressable>
           <Text style={styles.headerTitle}>Upload Vibe</Text>
@@ -75,6 +175,7 @@ export default function UploadVibeScreen() {
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Hero Card */}
         <View style={styles.heroCard}>
           <View style={styles.heroIcon}>
             <Video size={36} color={Colors.teal} />
@@ -87,6 +188,7 @@ export default function UploadVibeScreen() {
           </View>
         </View>
 
+        {/* Rules */}
         <View style={styles.rulesCard}>
           <Text style={styles.rulesTitle}>Guidelines</Text>
           <Text style={styles.rule}>• Video must be 15-30 seconds long</Text>
@@ -96,13 +198,19 @@ export default function UploadVibeScreen() {
           <Text style={styles.rule}>• Points awarded after review (usually within 1 hour)</Text>
         </View>
 
+        {/* Upload State */}
         {uploading ? (
           <View style={styles.uploadingCard}>
             <Video size={32} color={Colors.primary} />
             <Text style={styles.uploadingTitle}>Uploading...</Text>
             <Text style={styles.uploadingPercent}>{progress}%</Text>
             <View style={styles.uploadProgressBg}>
-              <Animated.View style={[styles.uploadProgressFill, { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} />
+              <Animated.View
+                style={[
+                  styles.uploadProgressFill,
+                  { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+                ]}
+              />
             </View>
             <Text style={styles.uploadingSub}>Please wait while your video is being uploaded</Text>
           </View>
@@ -110,49 +218,52 @@ export default function UploadVibeScreen() {
           <View style={styles.successCard}>
             <CheckCircle2 size={40} color={Colors.success} />
             <Text style={styles.successTitle}>Vibe Uploaded!</Text>
-            <Text style={styles.successSub}>400 points have been added to your wallet. Your video is being reviewed.</Text>
-            <Pressable style={styles.walletBtn} onPress={() => router.push('/wallet')} testID="go-wallet">
+            <Text style={styles.successSub}>Your video is Under Review. You'll earn 400 points when verified.</Text>
+            <Pressable style={styles.walletBtn} onPress={() => router.push('/wallet' as any)}>
               <Zap size={16} color="#fff" />
               <Text style={styles.walletBtnText}>View Wallet</Text>
             </Pressable>
           </View>
         ) : (
-          <Pressable style={styles.uploadBox} onPress={handleUpload} testID="upload-vibe-btn">
+          <Pressable style={styles.uploadBox} onPress={handleUpload}>
             <Upload size={36} color={Colors.primary} />
             <Text style={styles.uploadText}>Tap to upload your vibe video</Text>
             <Text style={styles.uploadSub}>MP4, MOV · Max 30 seconds</Text>
           </Pressable>
         )}
 
-        <View style={styles.previousVibes}>
-          <Text style={styles.prevTitle}>Previous Vibes</Text>
-          <View style={styles.vibeRow}>
-            <View style={styles.vibeThumb}>
-              <Video size={20} color={Colors.textTertiary} />
-            </View>
-            <View style={styles.vibeInfo}>
-              <Text style={styles.vibeName}>Coffee with Sarah M.</Text>
-              <Text style={styles.vibeDate}>Feb 19, 2026</Text>
-            </View>
-            <View style={styles.vibeStatus}>
-              <CheckCircle2 size={14} color={Colors.success} />
-              <Text style={styles.vibeStatusText}>+400 pts</Text>
-            </View>
+        {/* Previous Vibes */}
+        {!loadingVideos && previousVideos.length > 0 && (
+          <View style={styles.previousVibes}>
+            <Text style={styles.prevTitle}>Your Videos</Text>
+            {previousVideos.map((video) => (
+              <View key={video.id} style={styles.vibeRow}>
+                <View style={styles.vibeThumb}>
+                  <Video size={20} color={Colors.textTertiary} />
+                </View>
+                <View style={styles.vibeInfo}>
+                  <Text style={styles.vibeName}>{video.caption}</Text>
+                  <Text style={styles.vibeDate}>{new Date(video.created_at).toLocaleDateString()}</Text>
+                </View>
+                <View style={styles.vibeStatus}>
+                  {video.status === 'verified' ? (
+                    <>
+                      <CheckCircle2 size={14} color={Colors.success} />
+                      <Text style={styles.vibeStatusText}>+{video.points_awarded}</Text>
+                    </>
+                  ) : video.status === 'pending' ? (
+                    <>
+                      <Clock size={14} color={Colors.gold} />
+                      <Text style={[styles.vibeStatusText, { color: Colors.gold }]}>Review</Text>
+                    </>
+                  ) : (
+                    <Text style={[styles.vibeStatusText, { color: Colors.danger }]}>Rejected</Text>
+                  )}
+                </View>
+              </View>
+            ))}
           </View>
-          <View style={styles.vibeRow}>
-            <View style={styles.vibeThumb}>
-              <Video size={20} color={Colors.textTertiary} />
-            </View>
-            <View style={styles.vibeInfo}>
-              <Text style={styles.vibeName}>Hiking with James C.</Text>
-              <Text style={styles.vibeDate}>Feb 14, 2026</Text>
-            </View>
-            <View style={styles.vibeStatus}>
-              <Clock size={14} color={Colors.gold} />
-              <Text style={[styles.vibeStatusText, { color: Colors.gold }]}>Reviewing</Text>
-            </View>
-          </View>
-        </View>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>

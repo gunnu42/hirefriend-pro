@@ -9,7 +9,8 @@ import { useWallet } from '@/contexts/WalletContext';
 export default function ReceiptScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { billingHistory } = useWallet();
+  const walletData = useWallet();
+  const billingHistory = walletData?.billingHistory ?? [];
   const receipt = useMemo(() => billingHistory.find((r) => r.id === params.id), [billingHistory, params.id]);
 
   if (!receipt) {

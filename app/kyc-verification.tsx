@@ -23,7 +23,9 @@ const steps: { key: Step; label: string }[] = [
 
 export default function KycVerificationScreen() {
   const router = useRouter();
-  const { kycStatus, setKycStatus } = useWallet();
+  const walletData = useWallet();
+  const kycStatus = walletData?.kycStatus ?? 'pending';
+  const setKycStatus = walletData?.setKycStatus ?? (() => {});
   const [currentStep, setCurrentStep] = useState<Step>(kycStatus === 'verified' ? 'done' : 'intro');
   const [fullName, setFullName] = useState<string>('Alex Thompson');
   const [aadharNumber, setAadharNumber] = useState<string>('');

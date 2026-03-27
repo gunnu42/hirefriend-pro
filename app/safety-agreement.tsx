@@ -20,7 +20,9 @@ const safetyTips = [
 
 export default function SafetyAgreementScreen() {
   const router = useRouter();
-  const { safetyAgreed, agreeSafety } = useWallet();
+  const walletData = useWallet();
+  const safetyAgreed = walletData?.safetyAgreed ?? false;
+  const agreeSafety = walletData?.agreeSafety ?? (() => {});
   const [checked, setChecked] = useState<boolean>(safetyAgreed);
 
   const handleAgree = useCallback(() => {

@@ -1,15 +1,18 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Pressable, Modal,
+  View, Text, StyleSheet, FlatList, Pressable, Modal, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import { X, ChevronDown } from 'lucide-react-native';
+import { X, ChevronDown, Search } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { friends, categories } from '@/mocks/friends';
+import { supabase } from '@/supabase';
+import { friends as mockFriends } from '@/mocks/friends';
+import { useAuth } from '@/contexts/AuthContext';
 import FriendCard from '@/components/FriendCard';
 import SearchBar from '@/components/SearchBar';
+import EmptyState from '@/components/EmptyState';
 
 type SortOption = 'rating' | 'price_low' | 'price_high' | 'reviews';
 
@@ -22,15 +25,66 @@ const sortLabels: Record<SortOption, string> = {
 
 export default function ExploreScreen() {
   const params = useLocalSearchParams<{ category?: string }>();
+  const { user } = useAuth();
   const [search, setSearch] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>(params.category ?? 'All');
   const [sortBy, setSortBy] = useState<SortOption>('rating');
   const [showFilter, setShowFilter] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [users, setUsers] = useState<any[]>(mockFriends);
+  const [loading, setLoading] = useState(true);
 
-  const allCategories = useMemo(() => ['All', ...categories.map((c) => c.name)], []);
+  // Define categories (you might want to fetch these from Supabase too)
+  const allCategories = useMemo(() => [
+    'All', 'General', 'Sports', 'Music', 'Food', 'Travel', 'Gaming', 'Art', 'Tech'
+  ], []);
+
+  // Fetch users from Supabase
+  const fetchUsers = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, full_name, current_city, avatar_url, role')
+        .eq('role', 'friend')
+        .eq('is_blocked', false)
+        .neq('id', user?.id || '') // Exclude current user
+        .limit(50);
+
+      if (error) throw error;
+
+      // Transform data to match FriendCard expectations
+      const formattedUsers = (data || []).map((user: any) => ({
+        id: user.id,
+        name: user.full_name || 'Unknown',
+        avatar: user.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop',
+        location: user.current_city || 'Unknown',
+        rating: 4.5, // Placeholder - would need to calculate from reviews
+        verified: true, // Placeholder
+        isOnline: true, // Placeholder
+        activities: ['General'], // Placeholder - would need activities/interests table
+        pricePerHour: 500, // Placeholder
+        reviewCount: 10, // Placeholder
+      }));
+
+      if (formattedUsers.length) {
+        setUsers(formattedUsers);
+      } else {
+        setUsers(mockFriends);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      setUsers(mockFriends);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const filteredFriends = useMemo(() => {
-    let result = [...friends];
+    let result = [...users];
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -38,13 +92,13 @@ export default function ExploreScreen() {
         (f) =>
           f.name.toLowerCase().includes(q) ||
           f.location.toLowerCase().includes(q) ||
-          f.activities.some((a) => a.toLowerCase().includes(q))
+          f.activities.some((a: string) => a.toLowerCase().includes(q))
       );
     }
 
     if (selectedCategory !== 'All') {
       result = result.filter((f) =>
-        f.activities.some((a) => a.toLowerCase() === selectedCategory.toLowerCase())
+        f.activities.some((a: string) => a.toLowerCase() === selectedCategory.toLowerCase())
       );
     }
 
@@ -64,7 +118,7 @@ export default function ExploreScreen() {
     }
 
     return result;
-  }, [search, selectedCategory, sortBy]);
+  }, [search, selectedCategory, sortBy, users]);
 
   const handleCategorySelect = useCallback((cat: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -76,6 +130,12 @@ export default function ExploreScreen() {
     setSortBy(option);
     setShowFilter(false);
   }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchUsers();
+    setTimeout(() => setRefreshing(false), 1000);
+  }, [fetchUsers]);
 
   return (
     <View style={styles.container}>
@@ -138,10 +198,25 @@ export default function ExploreScreen() {
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => <FriendCard friend={item} variant="compact" />}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>No friends found</Text>
-            <Text style={styles.emptySubtitle}>Try adjusting your search or filters</Text>
-          </View>
+          loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.loadingText}>Finding friends...</Text>
+            </View>
+          ) : (
+            <EmptyState
+              icon={<Search size={40} color={Colors.primary} />}
+              title="No friends found"
+              subtitle="Try adjusting your search filters or exploring different categories"
+            />
+          )
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+          />
         }
       />
 
@@ -310,5 +385,15 @@ const styles = StyleSheet.create({
   sortOptionTextActive: {
     color: Colors.primary,
     fontWeight: '600' as const,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
   },
 });

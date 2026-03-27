@@ -1,37 +1,146 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, FlatList,
+  View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
-  ArrowLeft, Zap, TrendingUp, TrendingDown, Flame, Gift, Video, Star, AlertTriangle, CreditCard,
+  ArrowLeft, Zap, TrendingUp, TrendingDown, Flame, Gift, Video, CreditCard,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
-import { useWallet, PointTransaction } from '@/contexts/WalletContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/supabase';
+
+interface PointTransaction {
+  id: string;
+  user_id: string;
+  type: string;
+  points_awarded: number;
+  description: string;
+  created_at: string;
+}
 
 const typeConfig: Record<string, { icon: React.ComponentType<any>; color: string; bg: string }> = {
-  attendance: { icon: Flame, color: Colors.primary, bg: Colors.tagBg },
+  daily_reward: { icon: Flame, color: Colors.primary, bg: Colors.tagBg },
   referral: { icon: Gift, color: Colors.indigo, bg: Colors.indigoLight },
-  vlog: { icon: Video, color: Colors.teal, bg: Colors.tealLight },
-  review: { icon: Star, color: Colors.gold, bg: Colors.goldLight },
+  video: { icon: Video, color: Colors.teal, bg: Colors.tealLight },
   purchase: { icon: CreditCard, color: Colors.success, bg: Colors.successLight },
-  penalty: { icon: AlertTriangle, color: Colors.danger, bg: Colors.dangerLight },
+  default: { icon: Zap, color: Colors.gold, bg: Colors.goldLight },
 };
 
 export default function WalletScreen() {
   const router = useRouter();
-  const { points, credits, streak, transactions, pointsToFreeConnection } = useWallet();
+  const { user } = useAuth();
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [transactions, setTransactions] = useState<PointTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<string>('all');
 
-  const filters = ['all', 'attendance', 'referral', 'vlog', 'review', 'penalty'];
+  const filters = ['all', 'daily_reward', 'referral', 'video', 'purchase'];
 
-  const filtered = filter === 'all' ? transactions : transactions.filter((t) => t.type === filter);
+  // Load initial data
+  useEffect(() => {
+    if (!user?.id) return;
+    loadWalletData();
+  }, [user?.id]);
+
+  // Real-time listeners
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Listen to wallet balance updates
+    const walletChannel = supabase
+      .channel(`wallet-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          const newBalance = payload.new?.wallet_balance;
+          if (newBalance !== undefined) {
+            setWalletBalance(newBalance);
+          }
+        }
+      )
+      .subscribe();
+
+    // Listen to new transactions
+    const txnChannel = supabase
+      .channel(`transactions-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'points_history',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          const newTxn = payload.new as PointTransaction;
+          setTransactions((prev) => [newTxn, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      walletChannel.unsubscribe();
+      txnChannel.unsubscribe();
+    };
+  }, [user?.id]);
+
+  const loadWalletData = async () => {
+    try {
+      setLoading(true);
+
+      // Fetch user wallet balance
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('wallet_balance')
+        .eq('id', user?.id)
+        .single();
+
+      if (userError) throw userError;
+      setWalletBalance(userData?.wallet_balance ?? 0);
+
+      // Fetch transaction history
+      const { data: txnData, error: txnError } = await supabase
+        .from('points_history')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (txnError) throw txnError;
+      setTransactions(txnData ?? []);
+    } catch (err) {
+      console.error('[Wallet] Load error:', err);
+      Alert.alert('Error', 'Failed to load wallet data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadWalletData();
+    setRefreshing(false);
+  };
+
+  const filtered = filter === 'all'
+    ? transactions
+    : transactions.filter((t) => t.type === filter);
 
   const renderTransaction = useCallback(({ item }: { item: PointTransaction }) => {
-    const config = typeConfig[item.type] ?? typeConfig.attendance;
+    const config = typeConfig[item.type] ?? typeConfig.default;
     const IconComp = config.icon;
-    const isPositive = item.amount > 0;
+    const isPositive = item.points_awarded > 0;
+    const createdDate = new Date(item.created_at).toLocaleDateString();
+
     return (
       <View style={styles.txnRow}>
         <View style={[styles.txnIcon, { backgroundColor: config.bg }]}>
@@ -39,7 +148,7 @@ export default function WalletScreen() {
         </View>
         <View style={styles.txnInfo}>
           <Text style={styles.txnDesc}>{item.description}</Text>
-          <Text style={styles.txnDate}>{item.date}</Text>
+          <Text style={styles.txnDate}>{createdDate}</Text>
         </View>
         <View style={styles.txnAmountCol}>
           <View style={styles.txnAmountRow}>
@@ -49,20 +158,28 @@ export default function WalletScreen() {
               <TrendingDown size={14} color={Colors.danger} />
             )}
             <Text style={[styles.txnAmount, { color: isPositive ? Colors.success : Colors.danger }]}>
-              {isPositive ? '+' : ''}{item.amount}
+              {isPositive ? '+' : ''}{item.points_awarded}
             </Text>
           </View>
-          <Text style={styles.txnType}>{item.type}</Text>
+          <Text style={styles.txnType}>{item.type.replace('_', ' ')}</Text>
         </View>
       </View>
     );
   }, []);
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={styles.loadingText}>Loading wallet...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safeTop}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} testID="back-button">
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <ArrowLeft size={22} color={Colors.text} />
           </Pressable>
           <Text style={styles.headerTitle}>Wallet & Rewards</Text>
@@ -70,7 +187,12 @@ export default function WalletScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {/* Balance Card */}
         <View style={styles.balanceCard}>
           <View style={styles.balanceTop}>
             <View style={styles.balanceIconBg}>
@@ -78,57 +200,35 @@ export default function WalletScreen() {
             </View>
             <View>
               <Text style={styles.balanceLabel}>Total Points</Text>
-              <Text style={styles.balanceValue}>{points}</Text>
+              <Text style={styles.balanceValue}>{walletBalance}</Text>
             </View>
           </View>
-          <View style={styles.balanceGrid}>
-            <View style={styles.balanceGridItem}>
-              <Text style={styles.gridValue}>{credits}</Text>
-              <Text style={styles.gridLabel}>Credits</Text>
-            </View>
-            <View style={styles.gridDivider} />
-            <View style={styles.balanceGridItem}>
-              <Text style={styles.gridValue}>{streak}</Text>
-              <Text style={styles.gridLabel}>Day Streak</Text>
-            </View>
-            <View style={styles.gridDivider} />
-            <View style={styles.balanceGridItem}>
-              <Text style={styles.gridValue}>{pointsToFreeConnection}</Text>
-              <Text style={styles.gridLabel}>To Free Unlock</Text>
-            </View>
-          </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${((500 - pointsToFreeConnection) / 500) * 100}%` }]} />
-          </View>
-          <Text style={styles.progressLabel}>{500 - pointsToFreeConnection}/500 points to free connection</Text>
         </View>
 
+        {/* Quick Actions */}
         <View style={styles.quickActions}>
-          <Pressable style={styles.quickBtn} onPress={() => router.push('/refer-earn')} testID="quick-refer">
+          <Pressable style={styles.quickBtn} onPress={() => router.push('/refer-earn' as any)}>
             <Gift size={20} color={Colors.indigo} />
             <Text style={styles.quickBtnText}>Refer</Text>
           </Pressable>
-          <Pressable style={styles.quickBtn} onPress={() => router.push('/upload-vibe')} testID="quick-vibe">
+          <Pressable style={styles.quickBtn} onPress={() => router.push('/upload-vibe' as any)}>
             <Video size={20} color={Colors.teal} />
-            <Text style={styles.quickBtnText}>Upload Vibe</Text>
+            <Text style={styles.quickBtnText}>Upload</Text>
           </Pressable>
-          <Pressable style={styles.quickBtn} onPress={() => router.push('/pricing')} testID="quick-buy">
+          <Pressable style={styles.quickBtn} onPress={() => router.push('/pricing' as any)}>
             <CreditCard size={20} color={Colors.gold} />
-            <Text style={styles.quickBtnText}>Buy Credits</Text>
-          </Pressable>
-          <Pressable style={styles.quickBtn} onPress={() => router.push('/billing-history')} testID="quick-billing">
-            <Zap size={20} color={Colors.primary} />
-            <Text style={styles.quickBtnText}>Billing</Text>
+            <Text style={styles.quickBtnText}>Buy</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.sectionTitle}>Points Ledger</Text>
-        <View style={styles.redemptionNote}>
-          <Zap size={14} color={Colors.gold} />
-          <Text style={styles.redemptionText}>500 Points = 1 Free Connection Unlock</Text>
-        </View>
+        {/* Transactions */}
+        <Text style={styles.sectionTitle}>Points History</Text>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
           {filters.map((f) => (
             <Pressable
               key={f}
@@ -142,11 +242,11 @@ export default function WalletScreen() {
           ))}
         </ScrollView>
 
-        {filtered.map((item) => (
-          <View key={item.id}>
-            {renderTransaction({ item })}
-          </View>
-        ))}
+        {filtered.length > 0 ? (
+          filtered.map((item) => <View key={item.id}>{renderTransaction({ item })}</View>)
+        ) : (
+          <Text style={styles.emptyText}>No transactions yet</Text>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -158,76 +258,92 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   safeTop: { backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surfaceAlt,
-    alignItems: 'center', justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.text },
-  scrollContent: { paddingHorizontal: 16 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
   balanceCard: {
-    backgroundColor: Colors.card, borderRadius: 20, padding: 24,
-    shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 24,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   balanceTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   balanceIconBg: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.goldLight,
-    alignItems: 'center', justifyContent: 'center',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.goldLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   balanceLabel: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' as const },
   balanceValue: { fontSize: 34, fontWeight: '800' as const, color: Colors.text },
-  balanceGrid: {
-    flexDirection: 'row', marginTop: 20, paddingTop: 16,
-    borderTopWidth: 1, borderTopColor: Colors.borderLight,
+  quickActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
   },
-  balanceGridItem: { flex: 1, alignItems: 'center' },
-  gridValue: { fontSize: 20, fontWeight: '800' as const, color: Colors.text },
-  gridLabel: { fontSize: 11, color: Colors.textTertiary, marginTop: 2 },
-  gridDivider: { width: 1, height: 36, backgroundColor: Colors.borderLight },
-  progressBarBg: {
-    height: 8, backgroundColor: Colors.surfaceAlt, borderRadius: 4,
-    overflow: 'hidden', marginTop: 16,
-  },
-  progressBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 4 },
-  progressLabel: { fontSize: 12, color: Colors.textSecondary, marginTop: 6, textAlign: 'center' },
-  quickActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   quickBtn: {
-    flex: 1, alignItems: 'center', gap: 6, backgroundColor: Colors.card,
-    borderRadius: 14, paddingVertical: 14,
-    shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    flex: 1,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    gap: 8,
   },
-  quickBtnText: { fontSize: 11, fontWeight: '600' as const, color: Colors.textSecondary },
-  sectionTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.text, marginTop: 24, marginBottom: 8 },
-  redemptionNote: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.goldLight, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12,
-  },
-  redemptionText: { fontSize: 13, fontWeight: '600' as const, color: Colors.goldText },
-  filterRow: { gap: 8, paddingBottom: 14 },
+  quickBtnText: { fontSize: 12, fontWeight: '600' as const, color: Colors.text },
+  sectionTitle: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, marginBottom: 12 },
+  filterRow: { gap: 8, marginBottom: 16 },
   filterChip: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: Colors.surfaceAlt,
   },
   filterChipActive: { backgroundColor: Colors.primary },
-  filterChipText: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary },
-  filterChipTextActive: { color: '#fff' },
+  filterChipText: { fontSize: 12, fontWeight: '600' as const, color: Colors.textSecondary },
+  filterChipTextActive: { color: Colors.surface },
   txnRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.card, borderRadius: 14, padding: 14, marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
   },
   txnIcon: {
-    width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   txnInfo: { flex: 1 },
   txnDesc: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
   txnDate: { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
   txnAmountCol: { alignItems: 'flex-end' },
   txnAmountRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  txnAmount: { fontSize: 16, fontWeight: '800' as const },
-  txnType: { fontSize: 10, color: Colors.textTertiary, marginTop: 2, textTransform: 'capitalize' as const },
+  txnAmount: { fontSize: 14, fontWeight: '700' as const },
+  txnType: { fontSize: 11, color: Colors.textTertiary, marginTop: 2 },
+  loadingText: { fontSize: 16, color: Colors.textSecondary },
+  emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', marginTop: 20 },
 });
 

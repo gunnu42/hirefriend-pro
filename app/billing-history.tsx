@@ -19,11 +19,12 @@ const statusConfig = {
 
 export default function BillingHistoryScreen() {
   const router = useRouter();
-  const { billingHistory } = useWallet();
+  const walletData = useWallet();
+  const billingHistory = walletData?.billingHistory ?? [];
 
   const handleDownload = useCallback((record: BillingRecord) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(`/receipt/${record.id}`);
+    router.push(`/receipt/${record.id}` as any);
   }, [router]);
 
   return (

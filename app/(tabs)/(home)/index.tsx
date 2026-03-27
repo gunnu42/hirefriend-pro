@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, FlatList,
-  RefreshControl, Alert,
+  RefreshControl, Alert, Modal, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,32 +9,28 @@ import { useRouter } from 'expo-router';
 import { Bell, MapPin, ChevronRight, Shield, Zap, Crown, Flame, Lock, Play } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { friends, categories } from '@/mocks/friends';
+import { supabase } from '@/supabase';
+import { categories, friends as mockFriends } from '@/mocks/friends';
 import FriendCard from '@/components/FriendCard';
 import CategoryCard from '@/components/CategoryCard';
 import SearchBar from '@/components/SearchBar';
 import InteractiveDailyRewards from '@/components/InteractiveDailyRewards';
-import { useWallet } from '@/contexts/WalletContext';
+import { useSubscription } from '@/contexts/SubscriptionContextUnified';
 import { useDailyRewards } from '@/contexts/DailyRewardsContext';
+import { useAuth } from '@/contexts/AuthContext';
 
-const stories = friends.filter(f => f.isFeatured).slice(0, 6).map(f => ({
-  id: f.id,
-  name: f.name.split(' ')[0],
-  avatar: f.avatar,
-  isOnline: f.isOnline,
-}));
-
-const vlogs = [
-  { id: 'v1', title: 'Street Food Walk in Mumbai', user: 'Priya S.', avatar: friends[0].avatar, thumbnail: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=200&fit=crop', views: '2.3K', duration: '0:28' },
-  { id: 'v2', title: 'Hiking Sahyadris with Vikas', user: 'Vikas J.', avatar: friends[7].avatar, thumbnail: 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=300&h=200&fit=crop', views: '1.8K', duration: '0:22' },
-  { id: 'v3', title: 'Goa Beach Sunset', user: 'Tanvi D.', avatar: friends[12].avatar, thumbnail: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300&h=200&fit=crop', views: '3.1K', duration: '0:15' },
-];
+// Stories feature removed (UI-only removal)
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [search, setSearch] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const { credits, claimDailyReward: addPointsToWallet, subscription } = useWallet();
+  const [userData, setUserData] = useState<any>(null);
+  const [featuredFriends, setFeaturedFriends] = useState<any[]>([]);
+  const [vlogs, setVlogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { walletBalance, connectsRemaining, currentPlan, claimDailyReward } = useSubscription();
   const {
     rewards,
     currentDay,
@@ -45,55 +41,151 @@ export default function HomeScreen() {
     loaded,
   } = useDailyRewards();
 
-  const featuredFriends = friends.filter((f) => f.isFeatured);
-  const nearbyFriends = friends.filter((f) => f.isOnline);
-  const isPremium = subscription !== 'free';
+  const isPremium = currentPlan !== 'free';
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1200);
+  // Fetch user data
+  const fetchUserData = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('full_name, current_city, wallet_balance')
+        .eq('id', user.id)
+        .single();
+
+      if (error) throw error;
+      setUserData(data);
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  }, [user?.id]);
+
+  // Fetch featured friends
+  const fetchFeaturedFriends = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, full_name, current_city, avatar_url')
+        .eq('role', 'friend')
+        .eq('is_blocked', false)
+        .limit(10);
+
+      if (error) throw error;
+      
+      // Transform data to match FriendCard expectations
+      const formattedFriends = (data || []).map((user: any) => ({
+        id: user.id,
+        name: user.full_name || 'Unknown',
+        avatar: user.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop',
+        location: user.current_city || 'Unknown',
+        rating: 4.5, // Placeholder - would need to calculate from reviews
+        verified: true, // Placeholder
+        isOnline: true, // Placeholder
+        isFeatured: true,
+        activities: ['General'], // Placeholder
+      }));
+      
+      if (!formattedFriends.length) {
+        setFeaturedFriends(mockFriends.slice(0, 10));
+      } else {
+        setFeaturedFriends(formattedFriends);
+      }
+    } catch (error) {
+      console.error('Error fetching featured friends:', error);
+      setFeaturedFriends(mockFriends.slice(0, 10));
+    }
   }, []);
+
+  // Fetch vlogs (videos)
+  const fetchVlogs = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('videos')
+        .select(`
+          id,
+          caption,
+          thumbnail_url,
+          view_count,
+          users!inner(full_name, avatar_url)
+        `)
+        .eq('status', 'verified')
+        .order('created_at', { ascending: false })
+        .limit(3);
+
+      if (error) throw error;
+      
+      const formattedVlogs = (data || []).map((video: any) => ({
+        id: video.id,
+        title: video.caption || 'Untitled',
+        user: video.users?.full_name || 'Unknown',
+        avatar: video.users?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop',
+        thumbnail: video.thumbnail_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=200&fit=crop',
+        views: `${Math.floor(video.view_count / 1000)}K`,
+        duration: '0:30', // Placeholder
+      }));
+      
+      setVlogs(formattedVlogs);
+    } catch (error) {
+      console.error('Error fetching vlogs:', error);
+    }
+  }, []);
+
+  // Load all data
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchUserData(),
+        fetchFeaturedFriends(),
+        fetchVlogs(),
+      ]);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchUserData, fetchFeaturedFriends, fetchVlogs]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setTimeout(() => setRefreshing(false), 1200);
+  }, [loadData]);
 
   const handleCategoryPress = useCallback(
     (category: { id: string; name: string }) => {
-      router.push({
-        pathname: `/category/${encodeURIComponent(category.name)}`,
-      });
+      router.push({ pathname: '/category/[name]', params: { name: category.name } });
     },
     [router]
   );
 
   const handleSearchFocus = useCallback(() => {
-    router.push('/explore');
+    router.push('/(tabs)/explore' as any);
   }, [router]);
 
   const handleClaimDaily = useCallback(async (day: number) => {
     if (!canClaimToday) {
-      router.push('/refer-earn');
+      router.push('/wallet' as any);
       return;
     }
 
     const result = await claimReward(day);
     if (result.success) {
+      // Update wallet via Supabase edge function
+      await claimDailyReward();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      addPointsToWallet(result.points);
       Alert.alert('Claimed!', result.message);
     } else {
       Alert.alert('Error', result.message);
     }
-  }, [canClaimToday, claimReward, addPointsToWallet, router]);
-
-  const handleStoryPress = useCallback((storyId: string) => {
-    if (!isPremium) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.push('/subscription');
-    } else {
-      router.push(`/friend/${storyId}`);
-    }
-  }, [isPremium, router]);
+  }, [canClaimToday, claimReward, claimDailyReward, router]);
 
   const handleVlogPress = useCallback(() => {
-    router.push('/upload-vibe');
+    router.push('/upload-vibe' as any);
   }, [router]);
 
   return (
@@ -108,26 +200,30 @@ export default function HomeScreen() {
               />
             </View>
             <View>
-              <Text style={styles.greeting}>Good morning</Text>
+              <Text style={styles.greeting}>
+                Good morning{userData?.full_name ? `, ${userData.full_name.split(' ')[0]}` : ''}
+              </Text>
               <View style={styles.locationRow}>
                 <MapPin size={12} color={Colors.primary} />
-                <Text style={styles.locationText}>New York, NY</Text>
+                <Text style={styles.locationText}>
+                  {userData?.current_city || 'Set your location'}
+                </Text>
               </View>
             </View>
           </View>
           <View style={styles.headerRight}>
             <Pressable
               style={styles.creditBadge}
-              onPress={() => router.push('/wallet')}
+              onPress={() => router.push('/wallet' as any)}
               testID="credits-badge"
             >
               <Zap size={14} color={Colors.gold} />
-              <Text style={styles.creditText}>{credits}</Text>
+              <Text style={styles.creditText}>{userData?.wallet_balance || 0}</Text>
             </Pressable>
             <Pressable
               style={styles.bellBtn}
               testID="notifications-button"
-              onPress={() => router.push('/notifications')}
+              onPress={() => router.push('/notifications' as any)}
             >
               <Bell size={22} color={Colors.text} />
               <View style={styles.bellDot} />
@@ -149,55 +245,15 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
-        <View style={styles.storiesSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Stories</Text>
-            {!isPremium && (
-              <View style={styles.lockBadge}>
-                <Lock size={10} color={Colors.gold} />
-                <Text style={styles.lockBadgeText}>PRO</Text>
-              </View>
-            )}
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storiesRow}>
-            {stories.map((story) => (
-              <Pressable
-                key={story.id}
-                style={styles.storyItem}
-                onPress={() => handleStoryPress(story.id)}
-                testID={`story-${story.id}`}
-              >
-                <View style={[styles.storyRing, story.isOnline && styles.storyRingActive]}>
-                  <Image source={{ uri: story.avatar }} style={[styles.storyAvatar, !isPremium && styles.storyAvatarBlurred]} blurRadius={!isPremium ? 8 : 0} />
-                  {!isPremium && (
-                    <View style={styles.storyLockOverlay}>
-                      <Lock size={14} color="#fff" />
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.storyName} numberOfLines={1}>{story.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-
-        {loaded && (
-          <InteractiveDailyRewards
-            rewards={rewards}
-            currentDay={currentDay}
-            canClaimToday={canClaimToday}
-            streakCount={streakCount}
-            isClaimableDay={isClaimableDay}
-            onClaimReward={handleClaimDaily}
-            testID="daily-rewards"
-          />
+        {loaded && rewards && rewards.length > 0 && (
+          <InteractiveDailyRewards />
         )}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Categories</Text>
             <Pressable
-              onPress={() => router.push('/explore')}
+              onPress={() => router.push('/(tabs)/explore' as any)}
               style={styles.seeAllBtn}
               testID="see-all-categories"
             >
@@ -217,20 +273,20 @@ export default function HomeScreen() {
           />
         </View>
 
-        <Pressable style={styles.proBanner} onPress={() => router.push('/subscription')} testID="pro-banner">
+        <Pressable style={styles.proBanner} onPress={() => router.push('/subscription' as any)} testID="pro-banner">
           <View style={styles.proBannerLeft}>
             <View style={styles.proBannerIcon}>
               <Crown size={20} color={Colors.gold} />
             </View>
             <View style={styles.proBannerText}>
-              <Text style={styles.proBannerTitle}>Upgrade to PRO</Text>
-              <Text style={styles.proBannerSub}>Unlock 20 Connections for ₹1,800!</Text>
+              <Text style={styles.proBannerTitle}>Connect More</Text>
+              <Text style={styles.proBannerSub}>Get unlimited connections with PRO plans</Text>
             </View>
           </View>
           <ChevronRight size={18} color={Colors.goldText} />
         </Pressable>
 
-        <Pressable style={styles.safetyBanner} onPress={() => router.push('/safety-agreement')} testID="safety-banner">
+        <Pressable style={styles.safetyBanner} onPress={() => router.push('/safety-agreement' as any)} testID="safety-banner">
           <View style={styles.safetyBannerLeft}>
             <View style={styles.safetyBannerIcon}>
               <Shield size={20} color={Colors.teal} />
@@ -279,7 +335,7 @@ export default function HomeScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Featured Friends</Text>
             <Pressable
-              onPress={() => router.push('/explore')}
+              onPress={() => router.push('/(tabs)/explore' as any)}
               style={styles.seeAllBtn}
               testID="see-all-featured"
             >
@@ -287,40 +343,30 @@ export default function HomeScreen() {
               <ChevronRight size={14} color={Colors.primary} />
             </Pressable>
           </View>
-          <FlatList
-            data={featuredFriends}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.friendList}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <FriendCard friend={item} />}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Available Now</Text>
-            <Pressable
-              onPress={() => router.push('/explore')}
-              style={styles.seeAllBtn}
-              testID="see-all-nearby"
-            >
-              <Text style={styles.seeAll}>See all</Text>
-              <ChevronRight size={14} color={Colors.primary} />
-            </Pressable>
-          </View>
-          <FlatList
-            data={nearbyFriends}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.friendList}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <FriendCard friend={item} />}
-          />
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.loadingText}>Loading friends...</Text>
+            </View>
+          ) : featuredFriends.length > 0 ? (
+            <FlatList
+              data={featuredFriends}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.friendList}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => <FriendCard friend={item} />}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No featured friends available</Text>
+            </View>
+          )}
         </View>
 
         <View style={{ height: 20 }} />
       </ScrollView>
+
     </View>
   );
 }
@@ -469,4 +515,24 @@ const styles = StyleSheet.create({
   vlogMeta: { flex: 1 },
   vlogTitle: { fontSize: 13, fontWeight: '600' as const, color: Colors.text },
   vlogUser: { fontSize: 11, color: Colors.textTertiary, marginTop: 2 },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
 });
+

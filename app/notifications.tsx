@@ -122,9 +122,9 @@ export default function NotificationsScreen() {
               style={[styles.notifRow, !item.read && styles.notifRowUnread]}
               onPress={() => {
                 if (item.type === 'booking') {
-                  router.push('/bookings');
+                  router.push('/bookings' as any);
                 } else if (item.type === 'referral') {
-                  router.push('/refer-earn');
+                  router.push('/refer-earn' as any);
                 }
               }}
               testID={`notif-${item.id}`}

@@ -1,234 +1,297 @@
-import React, { useState, useCallback } from 'react';
+﻿import React, { useState, useCallback } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert,
-} from 'react-native';
-import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ArrowLeft, Camera } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
+  View, Text, StyleSheet, ScrollView, Pressable,
+  TextInput, Alert, ActivityIndicator, Switch
+} from 'react-native'
+import { Image } from 'expo-image'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import { useRouter } from 'expo-router'
+import * as ImagePicker from 'expo-image-picker'
+import { ChevronLeft, Camera } from 'lucide-react-native'
+import { supabase } from '@/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function EditProfileScreen() {
-  const router = useRouter();
-  const [name, setName] = useState<string>('Alex Thompson');
-  const [bio, setBio] = useState<string>('Love meeting new people and exploring cities!');
-  const [location, setLocation] = useState<string>('New York, NY');
-  const [phone, setPhone] = useState<string>('+1 (555) 123-4567');
+  const router = useRouter()
+  const { user, updateProfile } = useAuth()
 
-  const handleSave = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert('Profile Updated', 'Your changes have been saved.', [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
-  }, [router]);
+  const [fullName, setFullName] = useState(user?.full_name || '')
+  const [phone, setPhone] = useState(user?.phone || '')
+  const [bio, setBio] = useState(user?.bio || '')
+  const [city, setCity] = useState(
+    user?.city || user?.current_city || '')
+  const [gender, setGender] = useState(user?.gender || '')
+  const [hourlyRate, setHourlyRate] = useState(
+    user?.hourly_rate?.toString() || '')
+  const [isAvailable, setIsAvailable] = useState(
+    user?.is_friend_available || false)
+  const [avatarUri, setAvatarUri] = useState(
+    user?.avatar_url || '')
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
-  const handleChangePhoto = useCallback(() => {
-    router.push('/photo-picker');
-  }, [router]);
+  const handlePickAvatar = useCallback(async () => {
+    try {
+      const perm = await ImagePicker
+        .requestMediaLibraryPermissionsAsync()
+      if (!perm.granted) {
+        Alert.alert('Permission needed',
+          'Allow photo access to upload avatar')
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [1, 1],
+      })
+      if (result.canceled || !result.assets?.[0]?.uri) return
+
+      setUploading(true)
+      const uri = result.assets[0].uri
+      const response = await fetch(uri)
+      const blob = await response.blob()
+      const fileName = user?.id + '_' + Date.now() + '.jpg'
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, blob, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName)
+
+      setAvatarUri(urlData.publicUrl)
+      Alert.alert('✅', 'Photo uploaded!')
+    } catch (err) {
+      console.error('Avatar upload error:', err)
+      Alert.alert('Error', 'Failed to upload photo')
+    } finally {
+      setUploading(false)
+    }
+  }, [user?.id])
+
+  const handleSave = useCallback(async () => {
+    if (!fullName.trim()) {
+      Alert.alert('Required', 'Please enter your name')
+      return
+    }
+    try {
+      setSaving(true)
+      await updateProfile({
+        full_name: fullName.trim(),
+        phone: phone.trim(),
+        bio: bio.trim(),
+        city: city.trim(),
+        current_city: city.trim(),
+        gender,
+        hourly_rate: parseFloat(hourlyRate) || 0,
+        is_friend_available: isAvailable,
+        avatar_url: avatarUri || user?.avatar_url,
+      })
+      Alert.alert('Success ✅', 'Profile saved!', [
+        { text: 'OK', onPress: () => router.back() }
+      ])
+    } catch (err) {
+      Alert.alert('Error', 'Could not save. Try again.')
+    } finally {
+      setSaving(false)
+    }
+  }, [fullName, phone, bio, city, gender,
+    hourlyRate, isAvailable, avatarUri, updateProfile, router])
+
+  const genders = ['Male', 'Female', 'Other']
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.safeTop}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} testID="back-button">
-            <ArrowLeft size={22} color={Colors.text} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Edit Profile</Text>
-          <Pressable onPress={handleSave} testID="save-button">
-            <Text style={styles.saveText}>Save</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
+    <SafeAreaView style={s.container}>
+      <View style={s.header}>
+        <Pressable onPress={() => router.back()} style={s.backBtn}>
+          <ChevronLeft size={24} color="#1A1A1A" />
+        </Pressable>
+        <Text style={s.headerTitle}>Edit Profile</Text>
+        <Pressable onPress={handleSave} style={s.saveBtn}
+          disabled={saving}>
+          {saving
+            ? <ActivityIndicator size="small" color="#EF4444" />
+            : <Text style={s.saveBtnText}>Save</Text>}
+        </Pressable>
+      </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.avatarSection}>
-          <View style={styles.avatarWrapper}>
+      <ScrollView showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scroll}>
+
+        {/* Avatar */}
+        <View style={s.avatarSection}>
+          <Pressable onPress={handlePickAvatar} style={s.avatarWrap}>
             <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop&crop=face' }}
-              style={styles.avatar}
+              source={{ uri: avatarUri ||
+                'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop' }}
+              style={s.avatar}
             />
-            <Pressable
-              onPress={handleChangePhoto}
-              style={styles.cameraBtn}
-              testID="change-photo-button"
-            >
-              <Camera size={16} color="#fff" />
-            </Pressable>
-          </View>
-          <Pressable onPress={handleChangePhoto}>
-            <Text style={styles.changePhotoText}>Change Photo</Text>
+            <View style={s.cameraOverlay}>
+              {uploading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Camera size={20} color="#fff" />}
+            </View>
           </Pressable>
+          <Text style={s.avatarHint}>Tap to change photo</Text>
         </View>
 
-        <View style={styles.formSection}>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Full Name</Text>
-            <TextInput
-              style={styles.fieldInput}
-              value={name}
-              onChangeText={setName}
-              placeholder="Enter your name"
-              placeholderTextColor={Colors.textTertiary}
-              testID="name-input"
-            />
+        {/* Personal Info */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Personal Info</Text>
+
+          <Text style={s.label}>Full Name *</Text>
+          <TextInput style={s.input} value={fullName}
+            onChangeText={setFullName}
+            placeholder="Your full name" />
+
+          <Text style={s.label}>Phone</Text>
+          <TextInput style={s.input} value={phone}
+            onChangeText={setPhone}
+            placeholder="+91 XXXXX XXXXX"
+            keyboardType="phone-pad" />
+
+          <Text style={s.label}>Gender</Text>
+          <View style={s.genderRow}>
+            {genders.map(g => (
+              <Pressable key={g}
+                onPress={() => setGender(g)}
+                style={[s.genderBtn,
+                  gender === g && s.genderBtnActive]}>
+                <Text style={[s.genderText,
+                  gender === g && s.genderTextActive]}>
+                  {g}
+                </Text>
+              </Pressable>
+            ))}
           </View>
 
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Bio</Text>
-            <TextInput
-              style={[styles.fieldInput, styles.textArea]}
-              value={bio}
-              onChangeText={setBio}
-              placeholder="Tell us about yourself"
-              placeholderTextColor={Colors.textTertiary}
-              multiline
-              numberOfLines={3}
-              testID="bio-input"
-            />
+          <Text style={s.label}>About Me</Text>
+          <TextInput style={[s.input, s.bioInput]}
+            value={bio} onChangeText={setBio}
+            placeholder="Tell people what makes you a great friend..."
+            multiline maxLength={200} />
+          <Text style={s.charCount}>{bio.length}/200</Text>
+        </View>
+
+        {/* Location */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Location & Availability</Text>
+
+          <Text style={s.label}>Your City</Text>
+          <TextInput style={s.input} value={city}
+            onChangeText={setCity}
+            placeholder="Mumbai, Delhi, Bangalore..." />
+
+          <View style={s.switchRow}>
+            <View>
+              <Text style={s.label}>Available as a Friend</Text>
+              <Text style={s.switchSub}>
+                Show up in friend listings</Text>
+            </View>
+            <Switch value={isAvailable}
+              onValueChange={setIsAvailable}
+              trackColor={{ true: '#EF4444' }}
+              thumbColor="#fff" />
           </View>
 
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Location</Text>
-            <TextInput
-              style={styles.fieldInput}
-              value={location}
-              onChangeText={setLocation}
-              placeholder="City, State"
-              placeholderTextColor={Colors.textTertiary}
-              testID="location-input"
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Phone</Text>
-            <TextInput
-              style={styles.fieldInput}
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="Your phone number"
-              placeholderTextColor={Colors.textTertiary}
-              keyboardType="phone-pad"
-              testID="phone-input"
-            />
+          <Text style={s.label}>Hourly Rate (₹)</Text>
+          <View style={s.rateRow}>
+            <Text style={s.ratePrefix}>₹</Text>
+            <TextInput style={[s.input, s.rateInput]}
+              value={hourlyRate}
+              onChangeText={setHourlyRate}
+              placeholder="500"
+              keyboardType="numeric" />
           </View>
         </View>
 
-        <Pressable onPress={handleSave} style={styles.saveBtn} testID="save-profile-button">
-          <Text style={styles.saveBtnText}>Save Changes</Text>
+        {/* Save Button */}
+        <Pressable style={s.saveFullBtn}
+          onPress={handleSave} disabled={saving}>
+          {saving
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={s.saveFullBtnText}>Save Changes</Text>}
         </Pressable>
 
-        <View style={{ height: 40 }} />
       </ScrollView>
-    </View>
-  );
+    </SafeAreaView>
+  )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  safeTop: {
-    backgroundColor: Colors.background,
-  },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#FAFAFA' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 16, paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surfaceAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
+  backBtn: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700',
+    color: '#1A1A1A' },
+  saveBtn: { padding: 4 },
+  saveBtnText: { fontSize: 16, fontWeight: '600',
+    color: '#EF4444' },
+  scroll: { padding: 16, paddingBottom: 40 },
+  avatarSection: { alignItems: 'center', marginBottom: 20 },
+  avatarWrap: { position: 'relative' },
+  avatar: { width: 100, height: 100, borderRadius: 50 },
+  cameraOverlay: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#EF4444',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#fff',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.text,
+  avatarHint: { fontSize: 13, color: '#888', marginTop: 8 },
+  card: {
+    backgroundColor: '#fff', borderRadius: 16,
+    padding: 16, marginBottom: 16,
+    shadowColor: '#000', shadowOpacity: 0.04,
+    shadowRadius: 8, elevation: 2,
   },
-  saveText: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: Colors.primary,
+  cardTitle: { fontSize: 16, fontWeight: '700',
+    color: '#1A1A1A', marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: '600',
+    color: '#666', marginBottom: 6, marginTop: 12 },
+  input: {
+    borderWidth: 1, borderColor: '#E5E5E5',
+    borderRadius: 12, padding: 14,
+    fontSize: 16, color: '#1A1A1A',
+    backgroundColor: '#FAFAFA',
   },
-  scrollContent: {
-    paddingHorizontal: 16,
+  bioInput: { minHeight: 100, textAlignVertical: 'top' },
+  charCount: { fontSize: 12, color: '#888',
+    textAlign: 'right', marginTop: 4 },
+  genderRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  genderBtn: {
+    paddingHorizontal: 20, paddingVertical: 10,
+    borderRadius: 20, backgroundColor: '#F5F5F5',
   },
-  avatarSection: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 30,
+  genderBtnActive: { backgroundColor: '#EF4444' },
+  genderText: { fontSize: 14, color: '#666',
+    fontWeight: '600' },
+  genderTextActive: { color: '#fff' },
+  switchRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginTop: 12,
   },
-  avatarWrapper: {
-    position: 'relative',
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  cameraBtn: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: Colors.background,
-  },
-  changePhotoText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.primary,
+  switchSub: { fontSize: 12, color: '#888', marginTop: 2 },
+  rateRow: { flexDirection: 'row', alignItems: 'center',
+    gap: 8 },
+  ratePrefix: { fontSize: 20, fontWeight: '700',
+    color: '#1A1A1A' },
+  rateInput: { flex: 1 },
+  saveFullBtn: {
+    backgroundColor: '#EF4444', borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center',
     marginTop: 8,
   },
-  formSection: {
-    gap: 18,
-  },
-  field: {
-    gap: 6,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
-    marginLeft: 4,
-  },
-  fieldInput: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: Colors.text,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  textArea: {
-    height: 90,
-    textAlignVertical: 'top' as const,
-  },
-  saveBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 30,
-  },
-  saveBtnText: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: '#fff',
-  },
-});
-
+  saveFullBtnText: { fontSize: 16, fontWeight: '700',
+    color: '#fff' },
+})

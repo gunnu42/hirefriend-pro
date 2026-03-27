@@ -43,7 +43,7 @@ export default function ContactSupportScreen() {
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
           <Text style={styles.note}>Our support team is available 24/7 to help with bookings, safety, and refunds.</Text>
-          <Pressable style={styles.chatButton} onPress={() => router.push('/help')} testID="open-help">
+          <Pressable style={styles.chatButton} onPress={() => router.push('/help' as any)} testID="open-help">
             <Text style={styles.chatButtonText}>Back to Help</Text>
           </Pressable>
         </View>

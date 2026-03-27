@@ -3,9 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "bunx rork start -p gbcyu9vgre0bxcpxf71dx --tunnel",
-    "start-web": "bunx rork start -p gbcyu9vgre0bxcpxf71dx --web --tunnel",
-    "start-web-dev": "DEBUG=expo* bunx rork start -p gbcyu9vgre0bxcpxf71dx --web --tunnel",
+    "start": "expo start",
+    "start:web": "expo start --web",
     "lint": "expo lint"
   },
   "dependencies": {
@@ -18,6 +17,7 @@
     "@tanstack/react-query": "^5.83.0",
     "@ungap/structured-clone": "^1.3.0",
     "expo": "~54.0.27",
+    "expo-auth-session": "^55.0.8",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.11",
     "expo-font": "~14.0.10",

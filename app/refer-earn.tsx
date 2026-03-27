@@ -1,40 +1,103 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, Alert, Share, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
-  ArrowLeft, Gift, Copy, Share2, Flame, Zap, Users, Trophy,
+  ArrowLeft, Gift, Copy, Share2, Users, Trophy,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import InteractiveDailyRewards from '@/components/InteractiveDailyRewards';
-import { useWallet } from '@/contexts/WalletContext';
-import { useDailyRewards } from '@/contexts/DailyRewardsContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/supabase';
 
-const referralHistory = [
-  { id: '1', name: 'Mike T.', date: 'Feb 20, 2026', pts: 500, status: 'completed' },
-  { id: '2', name: 'Jessica L.', date: 'Feb 15, 2026', pts: 500, status: 'completed' },
-  { id: '3', name: 'David K.', date: 'Feb 10, 2026', pts: 500, status: 'pending' },
-];
+interface Referral {
+  id: string;
+  referrer_id: string;
+  referred_user_id: string;
+  referred_user_name: string;
+  status: 'pending' | 'success';
+  points_awarded: number;
+  created_at: string;
+}
 
 export default function ReferEarnScreen() {
   const router = useRouter();
-  const [referralCode] = useState<string>('HIRE-ALEX-2026');
-  const { credits, claimDailyReward: addPointsToWallet } = useWallet();
-  const {
-    rewards,
-    currentDay,
-    canClaimToday,
-    streakCount,
-    isClaimableDay,
-    claimReward,
-    loaded,
-  } = useDailyRewards();
+  const { user } = useAuth();
+  const [referralCode, setReferralCode] = useState('');
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalPoints, setTotalPoints] = useState(0);
 
-  const totalPoints = credits; // Use actual credits from wallet
-  const totalReferrals = 3;
+  // Load referral data on mount
+  useEffect(() => {
+    if (!user?.id) return;
+    loadReferrals();
+  }, [user?.id]);
+
+  // Real-time listener for referral status updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`referrals-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'referrals',
+          filter: `referrer_id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          loadReferrals();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user?.id]);
+
+  const loadReferrals = async () => {
+    try {
+      setLoading(true);
+
+      // Fetch user's referral code
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('referral_code')
+        .eq('id', user?.id)
+        .single();
+
+      if (userError) throw userError;
+      const code = userData?.referral_code || `REF${user?.id?.slice(0, 8).toUpperCase()}`;
+      setReferralCode(code);
+
+      // Fetch referral history
+      const { data: refData, error: refError } = await supabase
+        .from('referrals')
+        .select('*')
+        .eq('referrer_id', user?.id)
+        .order('created_at', { ascending: false });
+
+      if (refError) throw refError;
+      setReferrals(refData ?? []);
+
+      // Calculate total points from successful referrals
+      const total = (refData ?? []).reduce((sum: number, ref: any) => {
+        return sum + (ref.status === 'success' ? ref.points_awarded : 0);
+      }, 0);
+      setTotalPoints(total);
+    } catch (err) {
+      console.error('[Referrals] Load error:', err);
+      Alert.alert('Error', 'Failed to load referral data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCopyCode = useCallback(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -45,7 +108,7 @@ export default function ReferEarnScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       if (Platform.OS === 'web') {
-        Alert.alert('Share', `Use code ${referralCode} to join HireFriend and get 500 bonus points!`);
+        Alert.alert('Share', `Use code ${referralCode} to join HireFriend and earn points!`);
       } else {
         await Share.share({
           message: `Join HireFriend using my code ${referralCode} and get 500 bonus points! Download now: https://hirefriend.app/invite/${referralCode}`,
@@ -56,27 +119,22 @@ export default function ReferEarnScreen() {
     }
   }, [referralCode]);
 
-  const handleClaimDaily = useCallback(async (day: number) => {
-    if (!canClaimToday) {
-      Alert.alert('Already claimed', 'Come back tomorrow for your next reward!');
-      return;
-    }
+  const totalReferrals = referrals.length;
+  const successfulReferrals = referrals.filter((r) => r.status === 'success').length;
 
-    const result = await claimReward(day);
-    if (result.success) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      addPointsToWallet(result.points);
-      Alert.alert('Claimed!', result.message);
-    } else {
-      Alert.alert('Error', result.message);
-    }
-  }, [canClaimToday, claimReward, addPointsToWallet]);
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={styles.noDataText}>Loading referrals...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safeTop}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} testID="back-button">
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <ArrowLeft size={22} color={Colors.text} />
           </Pressable>
           <Text style={styles.headerTitle}>Refer & Earn</Text>
@@ -84,7 +142,7 @@ export default function ReferEarnScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false}  contentContainerStyle={styles.scrollContent}>
         <View style={styles.heroCard}>
           <View style={styles.heroIconRow}>
             <View style={styles.heroIcon}>
@@ -95,19 +153,19 @@ export default function ReferEarnScreen() {
           <Text style={styles.heroSub}>That's equivalent to 1 Free Connection Unlock!</Text>
           <View style={styles.statsGrid}>
             <View style={styles.statBox}>
-              <Zap size={18} color={Colors.gold} />
+              <Trophy size={18} color={Colors.gold} />
               <Text style={styles.statBoxValue}>{totalPoints}</Text>
-              <Text style={styles.statBoxLabel}>Total Points</Text>
+              <Text style={styles.statBoxLabel}>Earned</Text>
             </View>
             <View style={styles.statBox}>
               <Users size={18} color={Colors.primary} />
-              <Text style={styles.statBoxValue}>{totalReferrals}</Text>
-              <Text style={styles.statBoxLabel}>Referrals</Text>
+              <Text style={styles.statBoxValue}>{successfulReferrals}</Text>
+              <Text style={styles.statBoxLabel}>Successful</Text>
             </View>
             <View style={styles.statBox}>
-              <Flame size={18} color={Colors.primary} />
-              <Text style={styles.statBoxValue}>{streakCount}</Text>
-              <Text style={styles.statBoxLabel}>Day Streak</Text>
+              <Users size={18} color={Colors.teal} />
+              <Text style={styles.statBoxValue}>{totalReferrals}</Text>
+              <Text style={styles.statBoxLabel}>Total</Text>
             </View>
           </View>
         </View>
@@ -116,46 +174,38 @@ export default function ReferEarnScreen() {
           <Text style={styles.codeLabel}>Your Referral Code</Text>
           <View style={styles.codeRow}>
             <Text style={styles.codeText}>{referralCode}</Text>
-            <Pressable onPress={handleCopyCode} style={styles.copyBtn} testID="copy-code">
+            <Pressable onPress={handleCopyCode} style={styles.copyBtn}>
               <Copy size={18} color={Colors.primary} />
             </Pressable>
           </View>
-          <Pressable style={styles.shareBtn} onPress={handleShare} testID="share-btn">
+          <Pressable style={styles.shareBtn} onPress={handleShare}>
             <Share2 size={18} color="#fff" />
             <Text style={styles.shareBtnText}>Share on WhatsApp</Text>
           </Pressable>
         </View>
-
-        {loaded && (
-          <InteractiveDailyRewards
-            rewards={rewards}
-            currentDay={currentDay}
-            canClaimToday={canClaimToday}
-            streakCount={streakCount}
-            isClaimableDay={isClaimableDay}
-            onClaimReward={handleClaimDaily}
-            testID="daily-rewards-refer"
-          />
-        )}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Trophy size={18} color={Colors.gold} />
             <Text style={styles.sectionTitle}>Referral History</Text>
           </View>
-          {referralHistory.map((ref) => (
-            <View key={ref.id} style={styles.refRow}>
-              <View style={styles.refInfo}>
-                <Text style={styles.refName}>{ref.name}</Text>
-                <Text style={styles.refDate}>{ref.date}</Text>
+          {referrals.length > 0 ? (
+            referrals.map((ref) => (
+              <View key={ref.id} style={styles.refRow}>
+                <View style={styles.refInfo}>
+                  <Text style={styles.refName}>{ref.referred_user_name}</Text>
+                  <Text style={styles.refDate}>{new Date(ref.created_at).toLocaleDateString()}</Text>
+                </View>
+                <View style={[styles.refBadge, ref.status === 'pending' && styles.refBadgePending]}>
+                  <Text style={[styles.refBadgeText, ref.status === 'pending' && styles.refBadgeTextPending]}>
+                    {ref.status === 'success' ? '+500 pts' : 'Pending'}
+                  </Text>
+                </View>
               </View>
-              <View style={[styles.refBadge, ref.status === 'pending' && styles.refBadgePending]}>
-                <Text style={[styles.refBadgeText, ref.status === 'pending' && styles.refBadgeTextPending]}>
-                  +{ref.pts} pts
-                </Text>
-              </View>
-            </View>
-          ))}
+            ))
+          ) : (
+            <Text style={styles.noDataText}>No referrals yet. Share your code to get started!</Text>
+          )}
         </View>
 
         <View style={{ height: 40 }} />
@@ -427,6 +477,12 @@ const styles = StyleSheet.create({
   },
   refBadgeTextPending: {
     color: Colors.goldText,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
 

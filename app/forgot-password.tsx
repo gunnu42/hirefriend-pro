@@ -8,27 +8,36 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, Mail, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const { resetPassword } = useAuth();
   const [email, setEmail] = useState<string>('');
   const [sent, setSent] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const btnAnim = useRef(new Animated.Value(1)).current;
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
       setError('Please enter a valid email address');
       return;
     }
     setError('');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Animated.sequence([
-      Animated.timing(btnAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
-      Animated.timing(btnAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
-    ]).start();
-    setSent(true);
-  }, [email, btnAnim]);
+    try {
+      await resetPassword(email.trim());
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Animated.sequence([
+        Animated.timing(btnAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
+        Animated.timing(btnAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
+      ]).start();
+      setSent(true);
+    } catch (err) {
+      console.error('Reset password error:', err);
+      const message = err instanceof Error ? err.message : 'Failed to send reset email. Please try again.'
+      Alert.alert('Error', message);
+    }
+  }, [email, btnAnim, resetPassword]);
 
   return (
     <View style={styles.container}>
@@ -71,7 +80,7 @@ export default function ForgotPasswordScreen() {
                 </Animated.View>
               </Pressable>
 
-              <Pressable onPress={() => router.replace('/login')} style={styles.backToLogin} testID="back-to-login">
+              <Pressable onPress={() => router.replace('/login' as any)} style={styles.backToLogin} testID="back-to-login">
                 <Text style={styles.backToLoginText}>Back to Sign In</Text>
               </Pressable>
             </View>
@@ -84,7 +93,7 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.successSubtitle}>
                 We've sent a password reset link to {email}. Please check your inbox.
               </Text>
-              <Pressable style={styles.sendBtn} onPress={() => router.replace('/login')} testID="go-login">
+              <Pressable style={styles.sendBtn} onPress={() => router.replace('/login' as any)} testID="go-login">
                 <Text style={styles.sendBtnText}>Back to Sign In</Text>
               </Pressable>
               <Pressable onPress={() => { setSent(false); }} style={styles.resendBtn} testID="resend-btn">
@@ -139,4 +148,5 @@ const styles = StyleSheet.create({
   resendBtn: { marginTop: 20 },
   resendText: { fontSize: 14, fontWeight: '600' as const, color: Colors.primary },
 });
+
 

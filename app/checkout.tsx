@@ -38,7 +38,10 @@ const tierDetails: Record<string, { name: string; price: string; connects: strin
 export default function CheckoutScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ tier: string }>();
-  const { kycStatus, setSubscription, addBillingRecord } = useWallet();
+  const walletData = useWallet();
+  const kycStatus = walletData?.kycStatus ?? 'pending';
+  const setSubscription = walletData?.setSubscription ?? (() => {});
+  const addBillingRecord = walletData?.addBillingRecord ?? (() => {});
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('upi_gpay');
   const [processing, setProcessing] = useState<boolean>(false);
 
@@ -50,7 +53,7 @@ export default function CheckoutScreen() {
     if (!kycDone) {
       Alert.alert('KYC Required', 'Please complete identity verification before making a purchase.', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Verify Now', onPress: () => router.push('/kyc-verification') },
+        { text: 'Verify Now', onPress: () => router.push('/kyc-verification' as any) },
       ]);
       return;
     }
@@ -119,7 +122,7 @@ export default function CheckoutScreen() {
         </View>
 
         {!kycDone && (
-          <Pressable style={styles.kycWarning} onPress={() => router.push('/kyc-verification')} testID="kyc-warning">
+          <Pressable style={styles.kycWarning} onPress={() => router.push('/kyc-verification' as any)} testID="kyc-warning">
             <ShieldCheck size={20} color={Colors.gold} />
             <View style={styles.kycWarningContent}>
               <Text style={styles.kycWarningTitle}>KYC Required</Text>

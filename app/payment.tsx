@@ -50,8 +50,7 @@ export default function PaymentScreen() {
 
     setTimeout(() => {
       setProcessing(false);
-      router.push({
-        pathname: '/booking-confirmation',
+      router.push({ pathname: '/booking-confirmation' as any,
         params: {
           friendId: friend.id,
           date: params.date ?? '',
@@ -173,3 +172,4 @@ const styles = StyleSheet.create({
   payBtnDisabled: { opacity: 0.6 },
   payBtnText: { fontSize: 16, fontWeight: '700' as const, color: '#fff' },
 });
+

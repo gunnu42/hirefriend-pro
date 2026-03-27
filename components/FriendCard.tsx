@@ -25,7 +25,7 @@ export default React.memo(function FriendCard({ friend, variant = 'default' }: F
       Animated.timing(scaleAnim, { toValue: 0.97, duration: 80, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
     ]).start();
-    router.push(`/friend/${friend.id}`);
+    router.push(`/friend/${friend.id}` as any);
   }, [friend.id, router, scaleAnim]);
 
   const handleFavorite = useCallback(() => {

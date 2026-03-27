@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable, KeyboardAvoidingView, Platform,
+  Alert, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -8,55 +9,182 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Send, Phone, Video } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/supabase';
 import { friends } from '@/mocks/friends';
+
+const MAX_DAILY_MESSAGES = 10;
 
 interface ChatMessage {
   id: string;
   text: string;
   isMe: boolean;
   timestamp: string;
+  sender_id: string;
 }
 
-const initialMessages: ChatMessage[] = [
-  { id: '1', text: 'Hey! I saw your profile and would love to hang out!', isMe: true, timestamp: '10:30 AM' },
-  { id: '2', text: 'Hi there! That sounds great! What activity were you thinking?', isMe: false, timestamp: '10:32 AM' },
-  { id: '3', text: 'I was thinking maybe we could grab some food and explore the city?', isMe: true, timestamp: '10:35 AM' },
-  { id: '4', text: "That's perfect! I know some amazing hidden spots. When works for you?", isMe: false, timestamp: '10:36 AM' },
-  { id: '5', text: 'How about this Saturday afternoon?', isMe: true, timestamp: '10:38 AM' },
-  { id: '6', text: "Saturday works! Let's meet at 2pm. I'll send you the location details closer to the date.", isMe: false, timestamp: '10:40 AM' },
-];
+interface MessageRow {
+  id: string;
+  text: string;
+  sender_id: string;
+  receiver_id: string;
+  created_at: string;
+}
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const [messageText, setMessageText] = useState<string>('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialMessages);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [dailyMessageCount, setDailyMessageCount] = useState(0);
+  const [isPremium, setIsPremium] = useState(false);
+  const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const realtimeSubscriptionRef = useRef<any>(null);
 
-  const friend = useMemo(() => friends.find((f) => f.id === id), [id]);
+  // Get friend from mocks
+  const friend = friends.find((f) => f.id === id);
 
-  const handleSend = useCallback(() => {
-    if (!messageText.trim()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      text: messageText.trim(),
-      isMe: true,
-      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+  // Load messages + realtime subscription
+  useEffect(() => {
+    if (!user?.id || !id) return;
+
+    const loadAndSubscribeMessages = async () => {
+      try {
+        setLoading(true);
+
+        const { data: messages, error } = await supabase
+          .from('messages')
+          .select('id, text, sender_id, receiver_id, created_at')
+          .or(
+            `and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`
+          )
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          console.error('[Chat] Error loading messages:', error);
+          return;
+        }
+
+        const rows = (messages ?? []) as MessageRow[];
+
+        const formattedMessages: ChatMessage[] = rows.map((msg) => ({
+          id: msg.id,
+          text: msg.text,
+          isMe: msg.sender_id === user.id,
+          timestamp: new Date(msg.created_at).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+          }),
+          sender_id: msg.sender_id,
+        }));
+
+        setChatMessages(formattedMessages);
+
+        const today = new Date().toDateString();
+        const todayCount = formattedMessages.filter(
+          (msg) => msg.isMe && new Date(msg.timestamp).toDateString() === today
+        ).length;
+        setDailyMessageCount(todayCount);
+        setDailyLimitReached(!isPremium && todayCount >= MAX_DAILY_MESSAGES);
+
+        // Clean up previous channel
+        if (realtimeSubscriptionRef.current) {
+          supabase.removeChannel(realtimeSubscriptionRef.current);
+        }
+
+        const channel = supabase
+          .channel(`chat-${user.id}-${id}`)
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'messages' },
+            (payload: { new: Record<string, any> }) => {
+              const newMsg = payload.new as MessageRow;
+              const isRelevant =
+                (newMsg.sender_id === user.id && newMsg.receiver_id === id) ||
+                (newMsg.sender_id === id && newMsg.receiver_id === user.id);
+              if (!isRelevant) return;
+
+              const formattedMsg: ChatMessage = {
+                id: newMsg.id,
+                text: newMsg.text,
+                isMe: newMsg.sender_id === user.id,
+                timestamp: new Date(newMsg.created_at).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                }),
+                sender_id: newMsg.sender_id,
+              };
+
+              setChatMessages((prev) => [...prev, formattedMsg]);
+              if (newMsg.sender_id === user.id) {
+                setDailyMessageCount((prev) => prev + 1);
+              }
+            }
+          )
+          .subscribe();
+
+        realtimeSubscriptionRef.current = channel;
+      } catch (err) {
+        console.error('[Chat] Exception loading messages:', err);
+      } finally {
+        setLoading(false);
+      }
     };
-    setChatMessages((prev) => [...prev, newMessage]);
-    setMessageText('');
 
-    setTimeout(() => {
-      const reply: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: 'Sounds great! Looking forward to it! 😊',
-        isMe: false,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      };
-      setChatMessages((prev) => [...prev, reply]);
-    }, 1500);
-  }, [messageText]);
+    loadAndSubscribeMessages();
+
+    return () => {
+      if (realtimeSubscriptionRef.current) {
+        supabase.removeChannel(realtimeSubscriptionRef.current);
+      }
+    };
+  }, [user?.id, id, isPremium]);
+
+  const handleSend = useCallback(async () => {
+    if (!messageText.trim() || !user?.id || !id) return;
+
+    if (!isPremium && dailyMessageCount >= MAX_DAILY_MESSAGES) {
+      Alert.alert(
+        'Daily Limit Reached',
+        `You can only send ${MAX_DAILY_MESSAGES} messages per day on the free plan. Upgrade for unlimited messaging.`,
+        [
+          { text: 'Upgrade', onPress: () => router.push('/subscription' as any) },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    try {
+      setSending(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      const { error } = await supabase.from('messages').insert({
+        sender_id: user.id,
+        receiver_id: id,
+        text: messageText.trim(),
+        created_at: new Date().toISOString(),
+      } as any);
+
+      if (error) {
+        console.error('[Chat] Error sending message:', error);
+        Alert.alert('Error', 'Failed to send message. Please try again.');
+        return;
+      }
+
+      setMessageText('');
+      // Message will appear via realtime subscription
+    } catch (err) {
+      console.error('[Chat] Exception sending message:', err);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  }, [messageText, user?.id, id, isPremium, dailyMessageCount]);
 
   const renderMessage = useCallback(({ item }: { item: ChatMessage }) => (
     <View style={[styles.messageBubble, item.isMe ? styles.myMessage : styles.theirMessage]}>
@@ -92,7 +220,7 @@ export default function ChatScreen() {
             <ArrowLeft size={22} color={Colors.text} />
           </Pressable>
           <Pressable
-            onPress={() => router.push(`/friend/${friend.id}`)}
+            onPress={() => router.push(`/friend/${friend.id}` as any)}
             style={styles.headerProfile}
             testID="chat-profile"
           >
@@ -107,14 +235,18 @@ export default function ChatScreen() {
           <View style={styles.headerActions}>
             <Pressable
               style={styles.headerActionBtn}
-              onPress={() => router.push({ pathname: '/call', params: { friendId: friend.id, method: 'voice' } })}
+              onPress={() =>
+                router.push({ pathname: '/call' as any, params: { friendId: friend.id, method: 'voice' } })
+              }
               testID="call-button"
             >
               <Phone size={20} color={Colors.text} />
             </Pressable>
             <Pressable
               style={styles.headerActionBtn}
-              onPress={() => router.push({ pathname: '/call', params: { friendId: friend.id, method: 'video' } })}
+              onPress={() =>
+                router.push({ pathname: '/call' as any, params: { friendId: friend.id, method: 'video' } })
+              }
               testID="video-button"
             >
               <Video size={20} color={Colors.text} />
@@ -123,38 +255,64 @@ export default function ChatScreen() {
         </View>
       </SafeAreaView>
 
+      {!isPremium && (
+        <View style={styles.limitBanner}>
+          <Text style={styles.limitText}>
+            Free: {dailyMessageCount}/{MAX_DAILY_MESSAGES} messages today
+          </Text>
+        </View>
+      )}
+
       <KeyboardAvoidingView
         style={styles.chatArea}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={0}
       >
-        <FlatList
-          ref={flatListRef}
-          data={chatMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.messageList}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        />
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={chatMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.messageList}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          />
+        )}
 
         <SafeAreaView edges={['bottom']} style={styles.inputArea}>
           <View style={styles.inputRow}>
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, dailyLimitReached && styles.inputDisabled]}
               value={messageText}
               onChangeText={setMessageText}
-              placeholder="Type a message..."
+              placeholder={dailyLimitReached ? 'Daily limit reached' : 'Type a message...'}
               placeholderTextColor={Colors.textTertiary}
               multiline
+              editable={!dailyLimitReached && !sending}
               testID="message-input"
             />
             <Pressable
               onPress={handleSend}
-              style={[styles.sendBtn, !messageText.trim() && styles.sendBtnDisabled]}
+              style={[
+                styles.sendBtn,
+                (!messageText.trim() || dailyLimitReached || sending) && styles.sendBtnDisabled,
+              ]}
+              disabled={!messageText.trim() || dailyLimitReached || sending}
               testID="send-button"
             >
-              <Send size={20} color={messageText.trim() ? '#fff' : Colors.textTertiary} />
+              {sending ? (
+                <ActivityIndicator color={messageText.trim() ? '#fff' : Colors.textTertiary} />
+              ) : (
+                <Send
+                  size={20}
+                  color={messageText.trim() && !dailyLimitReached ? '#fff' : Colors.textTertiary}
+                />
+              )}
             </Pressable>
           </View>
         </SafeAreaView>
@@ -220,8 +378,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  limitBanner: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FBBF24',
+  },
+  limitText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#92400E',
+    textAlign: 'center',
+  },
   chatArea: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   messageList: {
     paddingHorizontal: 16,
@@ -292,6 +468,9 @@ const styles = StyleSheet.create({
     color: Colors.text,
     maxHeight: 100,
   },
+  inputDisabled: {
+    opacity: 0.6,
+  },
   sendBtn: {
     width: 42,
     height: 42,
@@ -313,4 +492,3 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 });
-
