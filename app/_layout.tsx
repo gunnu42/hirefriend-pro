@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
 import { useRouter, useSegments, Slot } from 'expo-router';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
@@ -13,198 +13,85 @@ import { DailyRewardsProvider } from '@/contexts/DailyRewardsContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import Colors from '@/constants/colors';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Heart, Sparkles } from 'lucide-react-native';
+import { Heart } from 'lucide-react-native';
 
 const { width, height } = Dimensions.get('window');
 
 function PremiumSplashScreen() {
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [scaleAnim] = useState(new Animated.Value(0.8));
-  const [particleAnim1] = useState(new Animated.Value(0));
-  const [particleAnim2] = useState(new Animated.Value(0));
-  const [particleAnim3] = useState(new Animated.Value(0));
+  const fadeAnim = useRef(new Animated.Value(0)).current
+  const scaleAnim = useRef(new Animated.Value(0.85)).current
+  const progressAnim = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
-    // Logo scale-in animation
-    Animated.spring(scaleAnim, {
+    // Smooth entrance animation
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 8,
+        friction: 4,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start()
+
+    // Progress bar animation
+    Animated.timing(progressAnim, {
       toValue: 1,
-      tension: 10,
-      friction: 3,
-      useNativeDriver: true,
-    }).start();
-
-    // Fade in text
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      delay: 300,
-      useNativeDriver: true,
-    }).start();
-
-    // Floating particles animation
-    const animateParticles = () => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(particleAnim1, {
-            toValue: 1,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(particleAnim1, {
-            toValue: 0,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(particleAnim2, {
-            toValue: 1,
-            duration: 2500,
-            delay: 500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(particleAnim2, {
-            toValue: 0,
-            duration: 2500,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(particleAnim3, {
-            toValue: 1,
-            duration: 3000,
-            delay: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(particleAnim3, {
-            toValue: 0,
-            duration: 3000,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    };
-
-    animateParticles();
-  }, []);
-
-  const particleStyle1 = {
-    transform: [
-      {
-        translateY: particleAnim1.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -20],
-        }),
-      },
-      {
-        translateX: particleAnim1.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, 10],
-        }),
-      },
-    ],
-    opacity: particleAnim1.interpolate({
-      inputRange: [0, 0.5, 1],
-      outputRange: [0, 1, 0],
-    }),
-  };
-
-  const particleStyle2 = {
-    transform: [
-      {
-        translateY: particleAnim2.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -15],
-        }),
-      },
-      {
-        translateX: particleAnim2.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -15],
-        }),
-      },
-    ],
-    opacity: particleAnim2.interpolate({
-      inputRange: [0, 0.5, 1],
-      outputRange: [0, 1, 0],
-    }),
-  };
-
-  const particleStyle3 = {
-    transform: [
-      {
-        translateY: particleAnim3.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -25],
-        }),
-      },
-      {
-        translateX: particleAnim3.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, 20],
-        }),
-      },
-    ],
-    opacity: particleAnim3.interpolate({
-      inputRange: [0, 0.5, 1],
-      outputRange: [0, 1, 0],
-    }),
-  };
+      duration: 2500,
+      useNativeDriver: false,
+    }).start()
+  }, [])
 
   return (
-    <View style={styles.splashContainer}>
+    <View style={splashStyles.container}>
       <LinearGradient
-        colors={[Colors.primary, Colors.primaryDark, Colors.background]}
-        style={styles.gradient}
+        colors={['#EF4444', '#FF6B6B', '#FF8E8E']}
+        style={splashStyles.gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
-        {/* Floating particles */}
-        <Animated.View style={[styles.particle, styles.particle1, particleStyle1]}>
-          <Sparkles size={12} color="#ffffff" />
-        </Animated.View>
-        <Animated.View style={[styles.particle, styles.particle2, particleStyle2]}>
-          <Heart size={10} color="#ffffff" />
-        </Animated.View>
-        <Animated.View style={[styles.particle, styles.particle3, particleStyle3]}>
-          <Sparkles size={8} color="#ffffff" />
-        </Animated.View>
-
-        {/* Logo container with glow */}
-        <View style={styles.logoContainer}>
-          <View style={styles.glowContainer}>
-            <Animated.View style={[styles.logoWrapper, { transform: [{ scale: scaleAnim }] }]}>
-              <View style={styles.logoIcon}>
-                <Heart size={48} color="#ffffff" fill="#ffffff" />
-              </View>
-              <Animated.Text style={[styles.logoText, { opacity: fadeAnim }]}>
-                HireFriend
-              </Animated.Text>
-            </Animated.View>
+        <Animated.View style={[
+          splashStyles.content,
+          {
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }]
+          }
+        ]}>
+          <View style={splashStyles.logoCircle}>
+            <Heart size={52} color="#fff" fill="#fff" />
           </View>
-        </View>
-
-        {/* Tagline */}
-        <Animated.View style={[styles.taglineContainer, { opacity: fadeAnim }]}>
-          <Text style={styles.tagline}>Your companion for every moment</Text>
+          <Text style={splashStyles.logoText}>HireFriend</Text>
+          <Text style={splashStyles.tagline}>
+            Your companion for every moment
+          </Text>
         </Animated.View>
 
-        {/* Loading indicator */}
-        <Animated.View style={[styles.loadingContainer, { opacity: fadeAnim }]}>
-          <View style={styles.loadingBar}>
-            <View style={styles.loadingProgress} />
+        <Animated.View style={[
+          splashStyles.bottomSection,
+          { opacity: fadeAnim }
+        ]}>
+          <View style={splashStyles.progressTrack}>
+            <Animated.View style={[
+              splashStyles.progressFill,
+              {
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                })
+              }
+            ]} />
           </View>
-          <Text style={styles.loadingText}>Connecting you with friends...</Text>
+          <Text style={splashStyles.loadingText}>
+            Connecting you with friends...
+          </Text>
         </Animated.View>
       </LinearGradient>
     </View>
-  );
+  )
 }
 
 function RootLayoutContent() {
@@ -223,7 +110,7 @@ function RootLayoutContent() {
     navigationTimeoutRef.current = setTimeout(() => {
       console.warn('[RootLayout] ⏱️ Navigation timeout - forcing redirect');
       setNavigationReady(true);
-    }, 3000);
+    }, 5000);
 
     return () => {
       if (navigationTimeoutRef.current) {
@@ -239,7 +126,10 @@ function RootLayoutContent() {
       if (navigationTimeoutRef.current) {
         clearTimeout(navigationTimeoutRef.current);
       }
-      setNavigationReady(true);
+      // Add small delay for smooth transition
+      setTimeout(() => {
+        setNavigationReady(true);
+      }, 800);
     }
   }, [loading]);
 
@@ -257,30 +147,58 @@ function RootLayoutContent() {
     };
   }, [loading]);
 
-  // Perform navigation ONLY ONCE when auth state is first determined
+  // Perform navigation with proper state checking
   useEffect(() => {
-    if (!navigationReady) return;
+    if (!navigationReady || loading) return
 
-    const inTabsGroup = segments[0] === '(tabs)';
-    const inOnboarding = segments[0] === 'onboarding';
-    const inAuthFlow = segments[0] === 'login' ||
-      segments[0] === 'signup' ||
-      segments[0] === 'onboarding';
+    const inTabsGroup = segments[0] === '(tabs)'
+    const inOnboarding = segments[0] === 'onboarding'
+    const inAuthFlow = 
+      segments[0] === 'login' ||
+      segments[0] === 'onboarding'
+
+    console.log('[Nav] Checking:', { 
+      user: !!user, 
+      profile_completed: user?.profile_completed,
+      segment: segments[0] 
+    })
 
     if (user) {
-      if (!user.profile_completed && !inOnboarding) {
-        router.replace('/onboarding' as any);
-      } else if (user.profile_completed && !inTabsGroup) {
-        router.replace('/(tabs)' as any);
+      // Check if profile is completed (ensure boolean type)
+      const profileCompleted = Boolean(user.profile_completed)
+      
+      if (profileCompleted === true) {
+        // Profile done → go to home
+        if (!inTabsGroup) {
+          const safeRoutes = [
+            'edit-profile', 'wallet', 'notifications', 'settings',
+            'kyc-verification', 'subscription', 'refer-earn',
+            'billing-history', 'favorites-list', 'privacy', 'help',
+            'about', 'payment-methods', 'friend', 'chat',
+            'forgot-password', 'become-friend',
+          ]
+          if (!safeRoutes.includes(segments[0] ?? '')) {
+            console.log('[Nav] Profile complete, redirecting to home')
+            router.replace('/(tabs)' as any)
+          }
+        }
+      } else {
+        // Profile not done → go to onboarding
+        if (!inOnboarding) {
+          console.log('[Nav] Profile incomplete, redirecting to onboarding')
+          router.replace('/onboarding' as any)
+        }
       }
     } else {
-      if (!inAuthFlow) {
-        router.replace('/login' as any);
+      // Not logged in → go to login
+      if (!inAuthFlow && !inTabsGroup) {
+        console.log('[Nav] No user, redirecting to login')
+        router.replace('/login' as any)
       }
     }
 
-    initialNavigationDone.current = true;
-  }, [user, navigationReady, segments, router]);
+    initialNavigationDone.current = true
+  }, [user, navigationReady, segments, router])
 
   // Show splash screen until navigation is ready
   if (!navigationReady) {
@@ -317,96 +235,71 @@ export default function RootLayout() {
   );
 }
 
+const splashStyles = StyleSheet.create({
+  container: { flex: 1 },
+  gradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  logoCircle: {
+    width: 100, height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+    shadowColor: '#fff',
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  logoText: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  tagline: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.75)',
+    fontWeight: '500',
+  },
+  bottomSection: {
+    paddingBottom: 60,
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 40,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 2,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+  },
+})
+
 const styles = StyleSheet.create({
   splashContainer: {
     flex: 1,
   },
-  gradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  particle: {
-    position: 'absolute',
-  },
-  particle1: {
-    top: height * 0.3,
-    left: width * 0.2,
-  },
-  particle2: {
-    top: height * 0.4,
-    right: width * 0.25,
-  },
-  particle3: {
-    top: height * 0.5,
-    left: width * 0.7,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  glowContainer: {
-    shadowColor: Colors.primary,
-    shadowOffset: {
-      width: 0,
-      height: 0,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 20,
-  },
-  logoWrapper: {
-    alignItems: 'center',
-  },
-  logoIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  logoText: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#ffffff',
-    textAlign: 'center',
-    letterSpacing: 1,
-  },
-  taglineContainer: {
-    marginBottom: 60,
-  },
-  tagline: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-  },
-  loadingBar: {
-    width: 200,
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 1.5,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  loadingProgress: {
-    width: '70%',
-    height: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: 1.5,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-  },
-});
-
+})

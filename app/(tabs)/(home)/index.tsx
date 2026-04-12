@@ -66,7 +66,6 @@ export default function HomeScreen() {
       const { data, error } = await supabase
         .from('users')
         .select('id, full_name, current_city, avatar_url')
-        .eq('role', 'friend')
         .eq('is_blocked', false)
         .limit(10);
 
@@ -100,14 +99,8 @@ export default function HomeScreen() {
   const fetchVlogs = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('videos')
-        .select(`
-          id,
-          caption,
-          thumbnail_url,
-          view_count,
-          users!inner(full_name, avatar_url)
-        `)
+        .from('vlogs')
+        .select('id, caption, thumbnail_url, view_count, created_at')
         .eq('status', 'verified')
         .order('created_at', { ascending: false })
         .limit(3);
@@ -117,16 +110,17 @@ export default function HomeScreen() {
       const formattedVlogs = (data || []).map((video: any) => ({
         id: video.id,
         title: video.caption || 'Untitled',
-        user: video.users?.full_name || 'Unknown',
-        avatar: video.users?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop',
+        user: 'Creator',
+        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop',
         thumbnail: video.thumbnail_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=200&fit=crop',
-        views: `${Math.floor(video.view_count / 1000)}K`,
-        duration: '0:30', // Placeholder
+        views: `${Math.floor((video.view_count || 0) / 1000)}K`,
+        duration: '0:30',
       }));
       
       setVlogs(formattedVlogs);
     } catch (error) {
       console.error('Error fetching vlogs:', error);
+      setVlogs([]);
     }
   }, []);
 

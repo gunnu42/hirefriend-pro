@@ -44,8 +44,7 @@ export default function ExploreScreen() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, full_name, current_city, avatar_url, role')
-        .eq('role', 'friend')
+        .select('id, full_name, current_city, avatar_url')
         .eq('is_blocked', false)
         .neq('id', user?.id || '') // Exclude current user
         .limit(50);

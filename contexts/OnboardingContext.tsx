@@ -100,23 +100,29 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
       setLanguages(languagesData || [])
 
-      // Load personality
-      const { data: personalityData } = await supabase
-        .from('user_personality')
-        .select('*')
-        .eq('user_id', userId)
-        .single()
+      // Load personality - table not yet created, skip for now
+      try {
+        const { data: personalityData } = await supabase
+          .from('user_personality')
+          .select('*')
+          .eq('user_id', userId)
+          .single()
+        if (personalityData) setPersonality(personalityData)
+      } catch (err) {
+        console.log('Personality not available yet')
+      }
 
-      if (personalityData) setPersonality(personalityData)
-
-      // Load service pricing
-      const { data: pricingData } = await supabase
-        .from('service_pricing')
-        .select('*')
-        .eq('user_id', userId)
-        .single()
-
-      if (pricingData) setPricing(pricingData)
+      // Load service pricing - table not yet created, skip for now
+      try {
+        const { data: pricingData } = await supabase
+          .from('service_pricing')
+          .select('*')
+          .eq('user_id', userId)
+          .single()
+        if (pricingData) setPricing(pricingData)
+      } catch (err) {
+        console.log('Service pricing not available yet')
+      }
 
       setError(null)
     } catch (err) {

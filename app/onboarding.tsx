@@ -159,6 +159,15 @@ export default function OnboardingScreen() {
 
   const handlePickImage = async (useCamera = false) => {
     try {
+      // Get fresh session
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user?.id) {
+        // Don't show error, just set URI locally
+        console.log('No session found')
+        return
+      }
+      const userId = session.user.id
+
       const perm = useCamera
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -168,30 +177,46 @@ export default function OnboardingScreen() {
       }
       const result = useCamera
         ? await ImagePicker.launchCameraAsync({
-            allowsEditing: true, aspect: [1,1], quality: 0.8
+            allowsEditing: true, aspect: [1,1], quality: 0.85
           })
         : await ImagePicker.launchImageLibraryAsync({
-            allowsEditing: true, aspect: [1,1], quality: 0.8,
-            mediaTypes: ImagePicker.MediaTypeOptions.Images
+            allowsEditing: true, aspect: [1,1], quality: 0.85,
+            mediaTypes: ['images']
           })
 
       if (result.canceled || !result.assets?.[0]?.uri) return
       setUploading(true)
       const uri = result.assets[0].uri
+      
+      // Convert URI to blob
       const response = await fetch(uri)
       const blob = await response.blob()
-      const fileName = (user?.id || 'user') + '_' + Date.now() + '.jpg'
-      const { error } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, blob, { upsert: true })
-      if (!error) {
-        const { data: urlData } = supabase.storage
-          .from('avatars').getPublicUrl(fileName)
-        setAvatarUri(urlData.publicUrl)
+      
+      const fileName = userId + '/' + Date.now() + '.jpg'
+      
+      // Try upsert with correct content type
+      const { data: uploadData, error: uploadError } = 
+        await supabase.storage
+          .from('avatars')
+          .upload(fileName, blob, {
+            contentType: 'image/jpeg',
+            upsert: true,
+            cacheControl: '3600',
+          })
+      
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        throw uploadError
       }
+      
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName)
+      
+      const publicUrl = urlData.publicUrl
+      setAvatarUri(publicUrl)
     } catch (err) {
       console.error('Image pick error:', err)
-      Alert.alert('Error', 'Failed to upload photo')
     } finally {
       setUploading(false)
     }
@@ -200,58 +225,124 @@ export default function OnboardingScreen() {
   const handleComplete = async () => {
     try {
       setSaving(true)
+      
+      // Get fresh session directly from Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.user?.id) {
+        // Try to get user from auth as fallback
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        if (!authUser?.id) {
+          Alert.alert('Please login again', 'Your session expired.')
+          router.replace('/login' as any)
+          return
+        }
+      }
+      
+      const userId = session?.user?.id || (await supabase.auth.getUser()).data.user?.id
+      if (!userId) {
+        Alert.alert('Please login again', 'Your session expired.')
+        router.replace('/login' as any)
+        return
+      }
+
       let dobString: string | null = null
       if (dobYear && dobMonth && dobDay) {
         dobString = dobYear + '-' +
-          dobMonth.padStart(2,'0') + '-' +
-          dobDay.padStart(2,'0')
+          dobMonth.padStart(2, '0') + '-' +
+          dobDay.padStart(2, '0')
       }
 
-      await updateProfile({
-        full_name: fullName.trim(),
-        gender,
-        city: selectedCity,
-        state: selectedState,
-        current_city: selectedCity,
-        bio: bio.trim(),
-        avatar_url: avatarUri || user?.avatar_url || '',
-        hourly_rate: parseFloat(hourlyRate) || 0,
-        is_friend_available: isAvailable,
-        profile_completed: true,
-      } as any)
+      // Save profile directly to Supabase
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          full_name: fullName.trim(),
+          gender,
+          city: selectedCity,
+          state: selectedState,
+          current_city: selectedCity,
+          bio: bio.trim(),
+          avatar_url: avatarUri || '',
+          hourly_rate: parseFloat(hourlyRate) || 0,
+          is_friend_available: isAvailable,
+          profile_completed: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
 
+      if (updateError) {
+        console.error('Profile update error:', updateError)
+        throw updateError
+      }
+
+      console.log('✅ Profile saved successfully!')
+
+      // Save interests
       if (interests.length > 0) {
-        await supabase.from('user_interests')
-          .delete().eq('user_id', user?.id)
-        await supabase.from('user_interests')
+        await supabase
+          .from('user_interests')
+          .delete()
+          .eq('user_id', userId)
+        
+        await supabase
+          .from('user_interests')
           .insert(interests.map(i => ({
-            user_id: user?.id, interest: i
+            user_id: userId,
+            interest: i
           })) as any)
       }
 
+      // Save languages
       if (languages.length > 0) {
-        await supabase.from('user_languages')
-          .delete().eq('user_id', user?.id)
-        await supabase.from('user_languages')
+        await supabase
+          .from('user_languages')
+          .delete()
+          .eq('user_id', userId)
+        
+        await supabase
+          .from('user_languages')
           .insert(languages.map(l => ({
-            user_id: user?.id, language: l
+            user_id: userId,
+            language: l
           })) as any)
       }
 
-      // Animate checkmark
+      // Force refresh auth session to get updated profile
+      console.log('[Onboarding] Force refreshing session...')
+      const { data: { session: freshSession } } = await supabase.auth.getSession()
+
+      if (freshSession?.user?.id) {
+        const { data: freshProfile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', freshSession.user.id)
+          .single()
+        
+        console.log('[Onboarding] Fresh profile:', { 
+          profile_completed: freshProfile?.profile_completed,
+          full_name: freshProfile?.full_name 
+        })
+      }
+
+      // Animate then navigate
       Animated.parallel([
         Animated.spring(scaleAnim, {
-          toValue: 1, tension: 10,
-          friction: 3, useNativeDriver: true
+          toValue: 1,
+          tension: 10,
+          friction: 3,
+          useNativeDriver: true,
         }),
         Animated.timing(checkAnim, {
-          toValue: 1, duration: 600,
-          useNativeDriver: true
-        })
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
       ]).start(() => {
+        // Navigate directly without waiting for _layout
         setTimeout(() => {
           router.replace('/(tabs)' as any)
-        }, 1500)
+        }, 500)
       })
 
     } catch (err) {

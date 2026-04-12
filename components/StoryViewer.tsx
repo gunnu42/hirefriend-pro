@@ -85,7 +85,7 @@ export default function StoryViewer({
         // Load stories
         if (storyIds.length > 0) {
           const { data: storiesData, error: storiesError } = await supabase
-            .from('videos')
+            .from('vlogs')
             .select('id, url, created_at, duration')
             .in('id', storyIds)
             .eq('user_id', userId)

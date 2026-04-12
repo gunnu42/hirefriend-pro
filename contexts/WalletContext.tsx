@@ -97,7 +97,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Fetch user wallet data
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('wallet_balance, current_streak, connects_left, plan_type, kyc_status')
+        .select('wallet_balance, current_streak, connects_left, plan_type, kyc_status, subscription_active')
         .eq('id', user.id)
         .single();
 

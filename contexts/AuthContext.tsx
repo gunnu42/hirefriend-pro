@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data) {
         console.log('[Auth] ✅ Profile fetched:', data.full_name)
+        console.log('[Auth] profile_completed:', data.profile_completed)
         return data as User
       }
       return null
@@ -181,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: existingSession.user.email || '',
             }
             setUser(fallbackUser)
+            setupRealtimeListener(existingSession.user.id)
           }
         } else {
           console.log('[Auth] No existing session found')
@@ -536,24 +538,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const updateProfile = useCallback(async (updates: Partial<User>) => {
-    if (!user) throw new Error('No user logged in')
-
     try {
       setError(null)
+      
+      // Get fresh session to ensure we have valid auth
+      const { data: { session } } = await supabase.auth.getSession()
+      const userId = session?.user?.id || user?.id
+      
+      if (!userId) {
+        throw new Error('No user logged in')
+      }
+
+      console.log('[Auth] Updating profile for user:', userId)
+      
       const { error } = await supabase
         .from('users')
         .update(updates)
-        .eq('id', user.id)
+        .eq('id', userId)
 
-      if (error) throw error
+      if (error) {
+        console.error('[Auth] Profile update error:', error)
+        throw error
+      }
 
-      setUser({ ...user, ...updates })
+      console.log('[Auth] Profile updated successfully')
+      
+      // Fetch fresh profile data immediately after update
+      const freshProfile = await fetchUserProfile(userId)
+      if (freshProfile) {
+        setUser(freshProfile)
+        console.log('[Auth] Fresh profile loaded:', { 
+          profile_completed: freshProfile.profile_completed,
+          full_name: freshProfile.full_name 
+        })
+      } else {
+        // Fallback: update local state with changes
+        setUser(prev => prev ? { ...prev, ...updates } : null)
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Profile update failed'
       setError(message)
+      console.error('[Auth] Update profile error:', err)
       throw err
     }
-  }, [user])
+  }, [user, fetchUserProfile])
 
   const getUser = useCallback(async (): Promise<User | null> => {
     const {
@@ -564,7 +592,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data } = await supabase
       .from('users')
-      .select('id, full_name, email, phone, gender, date_of_birth, current_city, role, is_blocked, plan_type, connects_left, connects_total, wallet_balance, subscription_active, auto_renew_enabled, referral_code, avatar_url, current_streak, last_active, created_at, updated_at')
+      .select('id, full_name, email, phone, gender, date_of_birth, current_city, is_blocked, plan_type, connects_left, connects_total, wallet_balance, subscription_active, auto_renew_enabled, referral_code, avatar_url, current_streak, last_active, created_at, updated_at')
       .eq('id', authUser.id)
       .single()
 

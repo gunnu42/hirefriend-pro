@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback } from 'react'
+﻿import React, { useState, useCallback, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
   TextInput, Alert, ActivityIndicator, Switch
@@ -20,6 +20,7 @@ export default function EditProfileScreen() {
   const [bio, setBio] = useState(user?.bio || '')
   const [city, setCity] = useState(
     user?.city || user?.current_city || '')
+  const [state, setState] = useState(user?.state || '')
   const [gender, setGender] = useState(user?.gender || '')
   const [hourlyRate, setHourlyRate] = useState(
     user?.hourly_rate?.toString() || '')
@@ -29,6 +30,20 @@ export default function EditProfileScreen() {
     user?.avatar_url || '')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    if (user) {
+      setFullName(user.full_name || '')
+      setPhone(user.phone || '')
+      setBio(user.bio || '')
+      setCity(user.city || user.current_city || '')
+      setState(user.state || '')
+      setGender(user.gender || '')
+      setHourlyRate(user.hourly_rate ? String(user.hourly_rate) : '')
+      setIsAvailable(user.is_friend_available ?? false)
+      setAvatarUri(user.avatar_url || '')
+    }
+  }, [user?.id])
 
   const handlePickAvatar = useCallback(async () => {
     try {
@@ -86,11 +101,13 @@ export default function EditProfileScreen() {
         bio: bio.trim(),
         city: city.trim(),
         current_city: city.trim(),
+        state: state.trim(),
         gender,
         hourly_rate: parseFloat(hourlyRate) || 0,
         is_friend_available: isAvailable,
         avatar_url: avatarUri || user?.avatar_url,
-      })
+        updated_at: new Date().toISOString(),
+      } as any)
       Alert.alert('Success ✅', 'Profile saved!', [
         { text: 'OK', onPress: () => router.back() }
       ])
@@ -99,7 +116,7 @@ export default function EditProfileScreen() {
     } finally {
       setSaving(false)
     }
-  }, [fullName, phone, bio, city, gender,
+  }, [fullName, phone, bio, city, state, gender,
     hourlyRate, isAvailable, avatarUri, updateProfile, router])
 
   const genders = ['Male', 'Female', 'Other']
@@ -185,6 +202,11 @@ export default function EditProfileScreen() {
           <TextInput style={s.input} value={city}
             onChangeText={setCity}
             placeholder="Mumbai, Delhi, Bangalore..." />
+
+          <Text style={s.label}>State</Text>
+          <TextInput style={s.input} value={state}
+            onChangeText={setState}
+            placeholder="Uttar Pradesh, Maharashtra..." />
 
           <View style={s.switchRow}>
             <View>

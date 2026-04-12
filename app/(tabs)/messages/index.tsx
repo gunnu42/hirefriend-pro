@@ -81,13 +81,13 @@ export default function MessagesScreen() {
         .select(`
           id,
           requester_id,
-          addressee_id,
+          receiver_id,
           status,
           created_at,
           requester:users!connections_requester_id_fkey(id, full_name, avatar_url, current_city),
-          addressee:users!connections_addressee_id_fkey(id, full_name, avatar_url, current_city)
+          receiver:users!connections_receiver_id_fkey(id, full_name, avatar_url, current_city)
         `)
-        .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .eq('status', 'accepted')
         .order('created_at', { ascending: false })
         .limit(20);
@@ -96,7 +96,7 @@ export default function MessagesScreen() {
 
       // Transform connections into conversation format
       const formattedConversations = (connections || []).map((conn: any) => {
-        const otherUser = conn.requester_id === user.id ? conn.addressee : conn.requester;
+        const otherUser = conn.requester_id === user.id ? conn.receiver : conn.requester;
         return {
           id: conn.id,
           friendId: otherUser.id,

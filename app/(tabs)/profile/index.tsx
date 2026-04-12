@@ -1,16 +1,19 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   Settings, ChevronRight, CreditCard, Shield, CircleHelp as HelpCircle,
   LogOut, Star, Users, Edit3, Bell, Heart, Crown, HandCoins, Gift, BadgeCheck,
-  Wallet, ShieldCheck, Video, FileText, AlertTriangle, Info,
+  Wallet, ShieldCheck, Video, FileText, AlertTriangle, Info, Camera,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { supabase, uploadToStorage } from '@/supabase';
@@ -59,6 +62,27 @@ export default function ProfileScreen() {
   const avatarUri = user?.avatar_url || profilePhoto?.media_url ||
     'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop&crop=face';
 
+  // Fetch fresh profile data on mount
+  useEffect(() => {
+    const refreshProfile = async () => {
+      if (!user?.id) return
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        
+        if (data) {
+          await updateProfile(data)
+        }
+      } catch (err) {
+        console.error('Profile refresh error:', err)
+      }
+    }
+    refreshProfile()
+  }, [user?.id])
+
   // Fetch real profile data on mount
   useEffect(() => {
     const fetchProfileData = async () => {
@@ -79,7 +103,7 @@ export default function ProfileScreen() {
         const { count: friendsCnt, error: friendsError } = await supabase
           .from('connections')
           .select('*', { count: 'exact', head: true })
-          .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+          .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
           .eq('status', 'accepted');
 
         if (!friendsError) {
@@ -90,7 +114,7 @@ export default function ProfileScreen() {
         const { data: reviewsData, error: reviewsError } = await supabase
           .from('reviews')
           .select('rating')
-          .eq('receiver_id', user.id);
+          .eq('reviewed_id', user.id);
 
         if (!reviewsError && reviewsData) {
           const totalReviews = reviewsData.length;
@@ -115,8 +139,8 @@ export default function ProfileScreen() {
   }, [user?.rating, user?.total_reviews]);
 
 
-  const displayName = user?.full_name || user?.email || 'HireFriend User';
-  const displayLocation = user?.city || user?.current_city || 'Add your city';
+  const displayName = user?.full_name || user?.email?.split('@')[0] || 'User'
+  const displayLocation = user?.city || user?.current_city || user?.state || 'Add your location'
 
   const handleOpenReviewModal = useCallback(() => {
     Animated.sequence([
@@ -150,45 +174,94 @@ export default function ProfileScreen() {
   }, [starAnim]);
 
 
-  const handlePickAvatar = useCallback(async () => {
-    if (!user?.id) return;
+  const handleAvatarPress = async () => {
+    Alert.alert(
+      'Profile Photo',
+      'Choose an option',
+      [
+        {
+          text: 'Choose from Gallery',
+          onPress: () => pickImage(false)
+        },
+        {
+          text: 'Take Photo',
+          onPress: () => pickImage(true)
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    )
+  }
 
+  const pickImage = async (useCamera: boolean) => {
     try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert('Permission required', 'Please allow image access to upload your avatar.');
-        return;
+      const perm = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync()
+      
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Please allow photo access')
+        return
       }
 
-      const pickerResult = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-      });
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.85,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.85,
+          })
 
-      // expo-image-picker returns `canceled` in the result and includes URI on success
-      if ('canceled' in pickerResult && pickerResult.canceled) return;
-      if (!('assets' in pickerResult) || !pickerResult.assets?.[0]?.uri) return;
+      if (result.canceled || !result.assets?.[0]?.uri) return
 
-      setIsUploading(true);
+      setIsUploading(true)
+      const uri = result.assets[0].uri
 
-      const imageUri = pickerResult.assets?.[0]?.uri;
-      if (!imageUri) throw new Error('Selected image URI not found');
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      const path = `avatars/${user.id}_${Date.now()}.jpg`;
-      const publicUrl = await uploadToStorage('avatars', path, blob);
+      // Convert to base64 for better compatibility
+      const base64 = await (FileSystem as any).readAsStringAsync(uri, {
+        encoding: 'base64',
+      })
+      const fileName = (user?.id ?? 'user') + '_' + Date.now() + '.jpg'
+      const fileData = decode(base64)
 
-      await updateProfile({ avatar_url: publicUrl });
-      Alert.alert('Success', 'Avatar uploaded successfully.');
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, fileData, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        })
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        Alert.alert('Upload failed', uploadError.message)
+        setIsUploading(false)
+        return
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName)
+
+      await updateProfile({ avatar_url: urlData.publicUrl })
+      Alert.alert('✅ Photo updated!')
+      setIsUploading(false)
+
     } catch (err) {
-      console.error('Avatar upload error:', err);
-      Alert.alert('Error', 'Failed to upload avatar.');
+      console.error('Avatar upload error:', err)
+      Alert.alert('Error', 'Failed to upload photo. Try again.')
     } finally {
-      setIsUploading(false);
+      setIsUploading(false)
     }
-  }, [user?.id, updateProfile]);
+  }
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -200,6 +273,8 @@ export default function ProfileScreen() {
             router.replace('/login' as any);
           } catch (err) {
             console.error('Logout error:', err);
+            // Force navigate to login even if signOut fails
+            router.replace('/login' as any);
           }
         },
       },
@@ -218,18 +293,18 @@ export default function ProfileScreen() {
 
       const { error: reviewError } = await supabase.from('reviews').insert({
         reviewer_id: user.id,
-        receiver_id: user.id,
+        reviewed_id: user.id,
         rating: reviewScore,
         comment: reviewComment.trim(),
         created_at: new Date().toISOString(),
       } as any);
 
-      if (reviewError) throw reviewError;
+      if (reviewError) throw reviewError;___
 
       const { data: ratingsData, error: ratingsError } = await supabase
         .from('reviews')
         .select('rating')
-        .eq('receiver_id', user.id);
+        .eq('reviewed_id', user.id);
 
       if (ratingsError) throw ratingsError;
 
@@ -316,18 +391,18 @@ export default function ProfileScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.profileCard}>
-          <Pressable onPress={() => router.push('/edit-profile' as any)} style={styles.avatarContainer}>
+          <Pressable onPress={handleAvatarPress} style={styles.avatarContainer}>
             <Image
               source={{ uri: avatarUri }}
               style={styles.profileAvatar}
             />
-            {subLabel && (
-              <View style={styles.subBadgeAvatar}>
-                <Crown size={10} color="#fff" />
+            {isUploading && (
+              <View style={styles.avatarUploadOverlay}>
+                <ActivityIndicator color="#fff" />
               </View>
             )}
             <View style={styles.avatarEditBadge}>
-              <Edit3 size={12} color="#fff" />
+              <Camera size={12} color="#fff" />
             </View>
           </Pressable>
           <View style={styles.nameRow}>
@@ -565,9 +640,17 @@ const styles = StyleSheet.create({
   },
   avatarContainer: { position: 'relative', marginBottom: 12 },
   profileAvatar: { width: 88, height: 88, borderRadius: 44 },
+  avatarUploadOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 44,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarEditBadge: {
     position: 'absolute', bottom: 0, right: 0,
-    width: 24, height: 24, borderRadius: 12,
+    width: 26, height: 26, borderRadius: 13,
     backgroundColor: '#EF4444',
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 2, borderColor: '#fff',

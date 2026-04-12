@@ -73,7 +73,7 @@ export default function LoginScreen() {
         Animated.timing(btnAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
         Animated.timing(btnAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
       ]).start();
-      router.replace('/(tabs)' as any);
+      // Navigation handled automatically by _layout.tsx based on auth state
     } catch (err) {
       console.error('Login error:', err);
       const message = err instanceof Error ? err.message : 'Please check your credentials and try again.';
@@ -260,7 +260,7 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Don't have an account? </Text>
-            <Pressable onPress={() => router.push('/become-friend' as any)} disabled={loading} testID="signup-link">
+            <Pressable onPress={() => router.push('/onboarding' as any)} disabled={loading} testID="signup-link">
               <Text style={styles.footerLink}>Sign Up</Text>
             </Pressable>
           </View>

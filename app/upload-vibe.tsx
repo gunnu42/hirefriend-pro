@@ -44,13 +44,13 @@ export default function UploadVibeScreen() {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel(`videos-${user.id}`)
+      .channel(`vlogs-${user.id}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
-          table: 'videos',
+          table: 'vlogs',
           filter: `user_id=eq.${user.id}`,
         },
         (payload: any) => {
@@ -71,7 +71,7 @@ export default function UploadVibeScreen() {
     try {
       setLoadingVideos(true);
       const { data, error } = await supabase
-        .from('videos')
+        .from('vlogs')
         .select('*')
         .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
@@ -141,7 +141,7 @@ export default function UploadVibeScreen() {
         .getPublicUrl(fileName);
 
       // Create video record
-      const { error: dbError } = await supabase.from('videos').insert({
+      const { error: dbError } = await supabase.from('vlogs').insert({
         user_id: user?.id,
         video_url: urlData.publicUrl,
         caption: 'My HireFriend meetup vibe',
